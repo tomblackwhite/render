@@ -13,6 +13,8 @@
 //   glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 //   m_window = glfwCreateWindow(m_WIDTH, m_HEIGHT, "Vulkan", nullptr, nullptr);
 // }
+using std::runtime_error;
+
 void VulkanWindow::initVulkanOther(const VkSurfaceKHR &surface) {
   setupDebugMessenger();
   createSurface(surface);
@@ -89,8 +91,9 @@ void VulkanWindow::setupDebugMessenger() {
 
   // vk::DispatchLoaderDynamic dldy;
   // dldy.init(*m_instance);
-  if (!m_enableValidationLayers)
+  if (!m_enableValidationLayers) {
     return;
+  }
 
   vk::DebugUtilsMessengerCreateInfoEXT createInfo;
 
@@ -108,8 +111,8 @@ void VulkanWindow::pickPhysicalDevice() {
   auto devices = m_instance.enumeratePhysicalDevices();
   // m_instance.enumeratePhysicalDevices();
 
-  if (devices.size() == 0) {
-    throw std::runtime_error("failed to find GPUs with Vulkan support!");
+  if (devices.empty()) {
+    throw runtime_error("failed to find GPUs with Vulkan support!");
   }
 
   for (auto &device : devices) {
@@ -121,7 +124,7 @@ void VulkanWindow::pickPhysicalDevice() {
   }
 
   if ((*m_physicalDevice) == vk::PhysicalDevice(nullptr)) {
-    throw std::runtime_error("failed to find a suitable GPU!");
+    throw runtime_error("failed to find a suitable GPU!");
   }
 }
 
@@ -131,7 +134,7 @@ void VulkanWindow::createLogicalDevice() {
   std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
   std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(),
                                             indices.presentFamily.value()};
-  auto queuePriority = 1.0f;
+  auto queuePriority = 1.0F;
 
   for (uint32_t queueFamily : uniqueQueueFamilies) {
     vk::DeviceQueueCreateInfo queueCreateInfo{.queueFamilyIndex = queueFamily,
@@ -276,10 +279,10 @@ void VulkanWindow::createRenderPass() {
 }
 
 void VulkanWindow::createGraphicsPipeline() {
-  std::string homePath = std::getenv("HOME");
+  std::string homePath = m_shaderDirPath;
 
-  auto vertShaderCode = readFile(homePath + "/test/vert.spv");
-  auto fragShaderCode = readFile(homePath + "/test/frag.spv");
+  auto vertShaderCode = readFile(homePath + "/vert.spv");
+  auto fragShaderCode = readFile(homePath + "/frag.spv");
   auto vertShaderModule = createShaderModule(vertShaderCode);
   auto fragShaderModule = createShaderModule(fragShaderCode);
 
@@ -773,9 +776,11 @@ void VulkanWindow::createVertexBuffer() {
   std::memcpy(data, m_vertices.data(), static_cast<size_t>(size));
   (*m_device).unmapMemory(*stagingBufferMemory);
 
-  createBuffer(size, vk::BufferUsageFlagBits::eTransferDst|vk::BufferUsageFlagBits::eVertexBuffer,
-              vk::MemoryPropertyFlagBits::eDeviceLocal,
-               m_vertexBuffer, m_vertexBufferMemory);
+  createBuffer(size,
+               vk::BufferUsageFlagBits::eTransferDst |
+                   vk::BufferUsageFlagBits::eVertexBuffer,
+               vk::MemoryPropertyFlagBits::eDeviceLocal, m_vertexBuffer,
+               m_vertexBufferMemory);
 
   copyBuffer(*stagingBuffer, *m_vertexBuffer, size);
 }
@@ -809,14 +814,12 @@ void VulkanWindow::createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
   //获取buffer 需要的类型;
   vk::DeviceBufferMemoryRequirements info{};
   info.setPCreateInfo(&bufferInfo);
-  auto memRequirements =
-      (*m_device).getBufferMemoryRequirements(*buffer);
+  auto memRequirements = (*m_device).getBufferMemoryRequirements(*buffer);
 
   vk::MemoryAllocateInfo allocInfo{};
   allocInfo.setAllocationSize(memRequirements.size);
   allocInfo.memoryTypeIndex =
-      findMemoryType(memRequirements.memoryTypeBits,
-                     properties);
+      findMemoryType(memRequirements.memoryTypeBits, properties);
 
   //分配设备内存
   bufferMemory = m_device.allocateMemory(allocInfo);
@@ -830,20 +833,20 @@ void VulkanWindow::createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
   m_device.bindBufferMemory2(bindInfo);
 }
 
-
-void VulkanWindow::copyBuffer(vk::Buffer srcBuffer,vk::Buffer dstBuffer,vk::DeviceSize size){
+void VulkanWindow::copyBuffer(vk::Buffer srcBuffer, vk::Buffer dstBuffer,
+                              vk::DeviceSize size) {
   vk::CommandBufferAllocateInfo allocInfo{};
   allocInfo.level = vk::CommandBufferLevel::ePrimary;
-  allocInfo.commandPool=*m_commandPool;
-  allocInfo.commandBufferCount=1;
-  auto commandBuffers= m_device.allocateCommandBuffers(allocInfo);
+  allocInfo.commandPool = *m_commandPool;
+  allocInfo.commandBufferCount = 1;
+  auto commandBuffers = m_device.allocateCommandBuffers(allocInfo);
 
   vk::CommandBufferBeginInfo beginInfo{};
-  beginInfo.flags=vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
+  beginInfo.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
 
   commandBuffers[0].begin(beginInfo);
   vk::BufferCopy copyRegion{};
-  copyRegion.size=size;
+  copyRegion.size = size;
   commandBuffers[0].copyBuffer(srcBuffer, dstBuffer, copyRegion);
   commandBuffers[0].end();
 
@@ -851,5 +854,4 @@ void VulkanWindow::copyBuffer(vk::Buffer srcBuffer,vk::Buffer dstBuffer,vk::Devi
   submitInfo.setCommandBuffers(*commandBuffers[0]);
   m_graphicsQueue.submit(submitInfo);
   m_graphicsQueue.waitIdle();
-
 }

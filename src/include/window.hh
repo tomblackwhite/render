@@ -1,6 +1,5 @@
 #pragma once
 #include <cstddef>
-
 #include <cstdint>
 #define VULKAN_HPP_NO_CONSTRUCTORS
 #include <fstream>
@@ -71,7 +70,9 @@ struct Vertex {
 
 class VulkanWindow {
 public:
-  VulkanWindow() = default;
+  VulkanWindow(std::string const &path):m_shaderDirPath(path){
+
+  }
 
   void initInstance(std::vector<std::string> &&extensions) {
 
@@ -233,9 +234,9 @@ private:
   std::vector<raii::Semaphore> m_renderFinishedSemaphores;
   std::vector<raii::Fence> m_inFlightFences;
 
-  const std::vector<Vertex> m_vertices = {{{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
-                                          {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-                                          {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}};
+  const std::vector<Vertex> m_vertices = {{{0.0F, -0.5F}, {1.0F, 1.0F, 1.0F}},
+                                          {{0.5F, 0.5F}, {0.0F, 1.0F, 0.0F}},
+                                          {{-0.5F, 0.5F}, {0.0F, 0.0F, 1.0F}}};
 
   uint32_t m_currentFrame = 0;
   QWindow *m_window{nullptr};
@@ -243,6 +244,9 @@ private:
   const uint32_t m_HEIGHT = 600;
   const std::vector<const char *> m_validationLayers = {
       "VK_LAYER_KHRONOS_validation"};
+
+
+  const std::string m_shaderDirPath;
 
   std::vector<std::string> m_instanceExtensions;
 
@@ -258,9 +262,9 @@ private:
 class VulkanGameWindow : public QWindow {
 
 public:
-  VulkanGameWindow(QVulkanInstance *qVulkanInstance)
-      : QWindow(), m_qVulkanInstance(qVulkanInstance),
-        m_vulkanWindow(new VulkanWindow()) {
+  VulkanGameWindow(QVulkanInstance *qVulkanInstance,std::string const&path)
+      : m_qVulkanInstance(qVulkanInstance),
+        m_vulkanWindow(new VulkanWindow(path)) {
     QWindow::setSurfaceType(QSurface::VulkanSurface);
   }
 

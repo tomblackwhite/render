@@ -38,7 +38,23 @@ add_library(ui ${ui_src})
 target_include_directories(ui PUBLIC "./include")
 target_link_libraries(ui PUBLIC Qt5::Widgets)
 add_executable(render main.cc)
-
+message("${CMAKE_BINARY_DIR}${Vulkan_GLSLC_EXECUTABLE}")
 
 target_include_directories(render PUBLIC "./ui")
 target_link_libraries(render PUBLIC core ui glfw Vulkan::Vulkan)
+
+
+#compile shader
+add_custom_command(
+  OUTPUT spirv
+  COMMAND ${Vulkan_GLSLC_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/shader/shader.frag" -o "frag.spv"
+  COMMAND ${Vulkan_GLSLC_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/shader/shader.vert" -o "vert.spv"
+  VERBATIM
+  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shader/shader.frag" "${CMAKE_CURRENT_SOURCE_DIR}/shader/shader.vert"
+)
+
+add_custom_target(
+  shaderbin
+  DEPENDS spirv
+)
+add_dependencies(render shaderbin)
