@@ -2,8 +2,11 @@
 #include <cstddef>
 #include <cstdint>
 #define VULKAN_HPP_NO_CONSTRUCTORS
+#define GLM_FORCE_RADIANS
+#include <chrono>
 #include <fstream>
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
 #include <iterator>
 #include <optional>
@@ -20,6 +23,7 @@
 #include <QWindow>
 
 namespace raii = vk::raii;
+namespace chrono = std::chrono;
 
 const int MAX_FRAMES_IN_FLIGHT = 2;
 
@@ -36,6 +40,14 @@ struct SwapChainSupportDetails {
   std::vector<vk::SurfaceFormatKHR> formats;
   std::vector<vk::PresentModeKHR> presentModes;
 };
+
+
+struct UniformBufferObject {
+    glm::mat4 model;
+    glm::mat4 view;
+    glm::mat4 proj;
+};
+
 
 //顶点
 struct Vertex {
@@ -92,6 +104,10 @@ public:
   ~VulkanWindow() { spdlog::info("in Vulkan Window destructor"); }
 
 private:
+
+      void updateUniformBuffer(uint32_t currentImage);
+
+
   void initWindow();
 
   void createInstance();
@@ -104,9 +120,22 @@ private:
 
   void createCommandPool();
 
+
   void createVertexBuffer();
 
   void createIndexBuffer();
+
+  void createUniformBuffers();
+
+
+
+  void createDescriptorPool();
+
+  void createDescriptorSets();
+
+  void createDescriptorSetLayout();
+
+
 
   void createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
                     vk::MemoryPropertyFlags properties, raii::Buffer &buffer,
@@ -221,6 +250,9 @@ private:
   raii::Buffer m_indexBuffer{nullptr};
   raii::DeviceMemory m_indexBufferMemory{nullptr};
 
+    std::vector<raii::Buffer> m_uniformBuffers;
+  std::vector<raii::DeviceMemory> m_uniformBuffersMemory;
+
   // raii::Buffer m_stagingBuffer{nullptr};
   // raii::DeviceMemory m_stagingBufferMemory{nullptr};
 
@@ -230,6 +262,12 @@ private:
   std::vector<raii::ImageView> m_swapChainImageViews;
   raii::PipelineLayout m_pipelineLayout{nullptr};
   raii::RenderPass m_renderPass{nullptr};
+
+  raii::DescriptorSetLayout m_descriptorSetLayout{nullptr};
+  raii::DescriptorPool m_descriptorPool{nullptr};
+  raii::DescriptorSets m_descriptorSets{nullptr};
+
+
   raii::Pipeline m_graphicsPipeline{nullptr};
   std::vector<raii::Framebuffer> m_swapChainFramebuffers;
   raii::CommandPool m_commandPool{nullptr};
