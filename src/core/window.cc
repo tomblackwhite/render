@@ -27,6 +27,7 @@ void VulkanWindow::initVulkanOther(const VkSurfaceKHR &surface) {
   createFramebuffers();
   createCommandPool();
   createVertexBuffer();
+  createIndexBuffer();
   createCommandBuffers();
   createSyncObjects();
 }
@@ -644,7 +645,14 @@ void VulkanWindow::recordCommandBuffer(const raii::CommandBuffer &commandBuffer,
   vk::Buffer vertexBuffers[] = {*m_vertexBuffer};
   vk::DeviceSize offsets[] = {0};
   commandBuffer.bindVertexBuffers(0, vertexBuffers, offsets);
-  commandBuffer.draw(static_cast<uint32_t>(m_vertices.size()), 1, 0, 0);
+
+  commandBuffer.bindIndexBuffer(*m_indexBuffer, 0, vk::IndexType::eUint16);
+
+  commandBuffer.drawIndexed(static_cast<uint32_t>(m_indices.size()), 1, 0, 0, 0);
+
+//  commandBuffer.draw(static_cast<uint32_t>(m_vertices.size()), 1, 0, 0);
+
+
 
   commandBuffer.endRenderPass();
 
@@ -854,4 +862,30 @@ void VulkanWindow::copyBuffer(vk::Buffer srcBuffer, vk::Buffer dstBuffer,
   submitInfo.setCommandBuffers(*commandBuffers[0]);
   m_graphicsQueue.submit(submitInfo);
   m_graphicsQueue.waitIdle();
+}
+
+void VulkanWindow::createIndexBuffer() {
+  auto size =
+      static_cast<vk::DeviceSize>(sizeof(m_indices[0]) * m_indices.size());
+
+  raii::Buffer stagingBuffer{nullptr};
+  raii::DeviceMemory stagingBufferMemory{nullptr};
+
+  createBuffer(size, vk::BufferUsageFlagBits::eTransferSrc,
+               vk::MemoryPropertyFlagBits::eHostVisible |
+                   vk::MemoryPropertyFlagBits::eHostCoherent,
+               stagingBuffer, stagingBufferMemory);
+
+  //填充buffer数据
+  auto *data = (*m_device).mapMemory(*stagingBufferMemory, 0, size);
+  std::memcpy(data, m_indices.data(), static_cast<size_t>(size));
+  (*m_device).unmapMemory(*stagingBufferMemory);
+
+  createBuffer(size,
+               vk::BufferUsageFlagBits::eTransferDst |
+                   vk::BufferUsageFlagBits::eIndexBuffer,
+               vk::MemoryPropertyFlagBits::eDeviceLocal, m_indexBuffer,
+               m_indexBufferMemory);
+
+  copyBuffer(*stagingBuffer, *m_indexBuffer, size);
 }

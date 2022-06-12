@@ -70,9 +70,7 @@ struct Vertex {
 
 class VulkanWindow {
 public:
-  VulkanWindow(std::string const &path):m_shaderDirPath(path){
-
-  }
+  VulkanWindow(std::string const &path) : m_shaderDirPath(path) {}
 
   void initInstance(std::vector<std::string> &&extensions) {
 
@@ -107,6 +105,8 @@ private:
   void createCommandPool();
 
   void createVertexBuffer();
+
+  void createIndexBuffer();
 
   void createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
                     vk::MemoryPropertyFlags properties, raii::Buffer &buffer,
@@ -201,6 +201,8 @@ private:
     return VK_FALSE;
   }
 
+
+
 private:
   raii::Context m_context;
   raii::Instance m_instance{nullptr};
@@ -216,6 +218,9 @@ private:
 
   raii::Buffer m_vertexBuffer{nullptr};
   raii::DeviceMemory m_vertexBufferMemory{nullptr};
+  raii::Buffer m_indexBuffer{nullptr};
+  raii::DeviceMemory m_indexBufferMemory{nullptr};
+
   // raii::Buffer m_stagingBuffer{nullptr};
   // raii::DeviceMemory m_stagingBufferMemory{nullptr};
 
@@ -234,17 +239,18 @@ private:
   std::vector<raii::Semaphore> m_renderFinishedSemaphores;
   std::vector<raii::Fence> m_inFlightFences;
 
-  const std::vector<Vertex> m_vertices = {{{0.0F, -0.5F}, {1.0F, 1.0F, 1.0F}},
-                                          {{0.5F, 0.5F}, {0.0F, 1.0F, 0.0F}},
-                                          {{-0.5F, 0.5F}, {0.0F, 0.0F, 1.0F}}};
+  const std::vector<Vertex> m_vertices = {{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+                                          {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+                                          {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+                                          {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}};
 
+  const std::vector<uint16_t> m_indices = {0, 1, 2, 2, 3, 0};
   uint32_t m_currentFrame = 0;
   QWindow *m_window{nullptr};
   const uint32_t m_WIDTH = 800;
   const uint32_t m_HEIGHT = 600;
   const std::vector<const char *> m_validationLayers = {
       "VK_LAYER_KHRONOS_validation"};
-
 
   const std::string m_shaderDirPath;
 
@@ -262,7 +268,7 @@ private:
 class VulkanGameWindow : public QWindow {
 
 public:
-  VulkanGameWindow(QVulkanInstance *qVulkanInstance,std::string const&path)
+  VulkanGameWindow(QVulkanInstance *qVulkanInstance, std::string const &path)
       : m_qVulkanInstance(qVulkanInstance),
         m_vulkanWindow(new VulkanWindow(path)) {
     QWindow::setSurfaceType(QSurface::VulkanSurface);
