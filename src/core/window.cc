@@ -914,7 +914,6 @@ void VulkanWindow::createDescriptorSetLayout() {
   layoutInfo.setBindingCount(1);
   layoutInfo.setBindings(uboLayoutBinding);
 
-
   m_descriptorSetLayout = m_device.createDescriptorSetLayout(layoutInfo);
 
 }
@@ -982,7 +981,7 @@ void VulkanWindow::createDescriptorPool() {
   poolInfo.setPoolSizeCount(1);
 
   poolInfo.setPoolSizes(poolSize);
-//  poolInfo.setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
+  poolInfo.setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
 
   poolInfo.setMaxSets(static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT));
 
