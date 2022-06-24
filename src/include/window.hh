@@ -1,6 +1,14 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <fmt/format.h>
+#include <gsl/gsl>
+#include <ratio>
+
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_STATIC
+#include <stb/stb_image.h>
+
 #define VULKAN_HPP_NO_CONSTRUCTORS
 #define GLM_FORCE_RADIANS
 #include <chrono>
@@ -18,6 +26,7 @@
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 
+#include <QMainWindow>
 #include <QPlatformSurfaceEvent>
 #include <QVulkanInstance>
 #include <QWindow>
@@ -41,18 +50,17 @@ struct SwapChainSupportDetails {
   std::vector<vk::PresentModeKHR> presentModes;
 };
 
-
 struct UniformBufferObject {
-    glm::mat4 model;
-    glm::mat4 view;
-    glm::mat4 proj;
+  glm::mat4 model;
+  glm::mat4 view;
+  glm::mat4 proj;
 };
-
 
 //顶点
 struct Vertex {
   glm::vec2 pos;
   glm::vec3 color;
+  glm::vec2 texCoord;
 
   static vk::VertexInputBindingDescription getBindingDescription() {
     vk::VertexInputBindingDescription bindingDescription{
@@ -62,9 +70,9 @@ struct Vertex {
     return bindingDescription;
   }
 
-  static std::array<vk::VertexInputAttributeDescription, 2>
+  static std::array<vk::VertexInputAttributeDescription, 3>
   getAttributeDescriptions() {
-    std::array<vk::VertexInputAttributeDescription, 2> attributeDescriptions{};
+    std::array<vk::VertexInputAttributeDescription, 3> attributeDescriptions{};
 
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
@@ -76,13 +84,42 @@ struct Vertex {
     attributeDescriptions[1].format = ::vk::Format::eR32G32B32Sfloat;
     attributeDescriptions[1].offset = offsetof(Vertex, color);
 
+    attributeDescriptions[2].binding = 0;
+    attributeDescriptions[2].location = 2;
+    attributeDescriptions[2].format = ::vk::Format::eR32G32Sfloat;
+    attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
+
     return attributeDescriptions;
   }
 };
 
+// deleter
+struct CommandBufferDeleter {
+
+  const vk::Queue &m_queue;
+
+  explicit CommandBufferDeleter(vk::Queue const &queue) : m_queue(queue) {}
+
+  using pointer = gsl::owner<raii::CommandBuffer *>;
+  void operator()(gsl::owner<raii::CommandBuffer *> point) {
+
+    point->end();
+    vk::SubmitInfo submitInfo{};
+    submitInfo.setCommandBuffers(**point);
+    m_queue.submit(submitInfo);
+    m_queue.waitIdle();
+    point->clear();
+
+    delete point;
+  }
+};
+
+using CommandBufferPointer =
+    std::unique_ptr<raii::CommandBuffer, CommandBufferDeleter>;
+
 class VulkanWindow {
 public:
-  VulkanWindow(std::string const &path) : m_shaderDirPath(path) {}
+  explicit VulkanWindow(std::string const &path) : m_shaderDirPath(path) {}
 
   void initInstance(std::vector<std::string> &&extensions) {
 
@@ -101,12 +138,14 @@ public:
 
   void resize() { recreateSwapChain(); }
 
+  std::optional<chrono::duration<float, std::milli>> getPerFrameTime() {
+    return m_perFrameTime;
+  }
+
   ~VulkanWindow() { spdlog::info("in Vulkan Window destructor"); }
 
 private:
-
-      void updateUniformBuffer(uint32_t currentImage);
-
+  void updateUniformBuffer(uint32_t currentImage);
 
   void initWindow();
 
@@ -120,14 +159,29 @@ private:
 
   void createCommandPool();
 
-
   void createVertexBuffer();
 
   void createIndexBuffer();
 
   void createUniformBuffers();
 
+  void createTextureImage();
 
+  void createTextureSampler();
+
+  //创建commandBuffer记录命令
+  CommandBufferPointer beginSingleTimeCommands();
+
+  void transitionImageLayout(vk::Image image, vk::Format format,
+                             vk::ImageLayout oldLayout,
+                             vk::ImageLayout newLayout);
+
+  void copyBufferToImage(vk::Buffer buffer, vk::Image image, uint32_t width,
+                         uint32_t height);
+
+  void createTextureImageView();
+
+  raii::ImageView createImageView(vk::Image, vk::Format format);
 
   void createDescriptorPool();
 
@@ -135,11 +189,14 @@ private:
 
   void createDescriptorSetLayout();
 
-
-
   void createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
                     vk::MemoryPropertyFlags properties, raii::Buffer &buffer,
                     raii::DeviceMemory &bufferMemory);
+
+  void createImage(uint32_t width, uint32_t height, vk::Format format,
+                   vk::ImageTiling tiling, vk::ImageUsageFlags usage,
+                   vk::MemoryPropertyFlagBits properties, raii::Image &image,
+                   raii::DeviceMemory &imageMemory);
 
   void copyBuffer(vk::Buffer srcBuffer, vk::Buffer dstBuffer,
                   vk::DeviceSize size);
@@ -230,8 +287,6 @@ private:
     return VK_FALSE;
   }
 
-
-
 private:
   raii::Context m_context;
   raii::Instance m_instance{nullptr};
@@ -250,11 +305,13 @@ private:
   raii::Buffer m_indexBuffer{nullptr};
   raii::DeviceMemory m_indexBufferMemory{nullptr};
 
-    std::vector<raii::Buffer> m_uniformBuffers;
+  std::vector<raii::Buffer> m_uniformBuffers;
   std::vector<raii::DeviceMemory> m_uniformBuffersMemory;
 
-  // raii::Buffer m_stagingBuffer{nullptr};
-  // raii::DeviceMemory m_stagingBufferMemory{nullptr};
+  raii::Image m_textureImage{nullptr};
+  raii::DeviceMemory m_textureImageMemory{nullptr};
+  raii::ImageView m_textureImageView{nullptr};
+  raii::Sampler m_textureSampler{nullptr};
 
   std::vector<vk::Image> m_swapChainImages;
   vk::Format m_swapChainImageFormat;
@@ -267,7 +324,6 @@ private:
   raii::DescriptorPool m_descriptorPool{nullptr};
   raii::DescriptorSets m_descriptorSets{nullptr};
 
-
   raii::Pipeline m_graphicsPipeline{nullptr};
   std::vector<raii::Framebuffer> m_swapChainFramebuffers;
   raii::CommandPool m_commandPool{nullptr};
@@ -277,22 +333,25 @@ private:
   std::vector<raii::Semaphore> m_renderFinishedSemaphores;
   std::vector<raii::Fence> m_inFlightFences;
 
-  const std::vector<Vertex> m_vertices = {{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-                                          {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-                                          {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-                                          {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}};
+  const std::vector<Vertex> m_vertices = {
+      {{-1.0f, -1.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+      {{1.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+      {{1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+      {{-1.0f, 1.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}};
 
   const std::vector<uint16_t> m_indices = {0, 1, 2, 2, 3, 0};
   uint32_t m_currentFrame = 0;
   QWindow *m_window{nullptr};
   const uint32_t m_WIDTH = 800;
-  const uint32_t m_HEIGHT = 600;
+  const uint32_t m_HEIGHT = 450;
   const std::vector<const char *> m_validationLayers = {
       "VK_LAYER_KHRONOS_validation"};
 
   const std::string m_shaderDirPath;
 
   std::vector<std::string> m_instanceExtensions;
+
+  std::optional<chrono::duration<float, std::milli>> m_perFrameTime;
 
   const std::vector<const char *> m_deviceExtensions{"VK_KHR_swapchain"};
 #ifdef NDEBUG
@@ -306,9 +365,11 @@ private:
 class VulkanGameWindow : public QWindow {
 
 public:
-  VulkanGameWindow(QVulkanInstance *qVulkanInstance, std::string const &path)
+  VulkanGameWindow(QVulkanInstance *qVulkanInstance, std::string const &path,
+                   QMainWindow *mainWindow)
       : m_qVulkanInstance(qVulkanInstance),
-        m_vulkanWindow(new VulkanWindow(path)) {
+        m_vulkanWindow(new VulkanWindow(path)), m_mainWindow(mainWindow) {
+
     QWindow::setSurfaceType(QSurface::VulkanSurface);
   }
 
@@ -319,6 +380,16 @@ public:
         m_initialized = true;
         init();
         m_vulkanWindow->drawFrame();
+
+        auto optionTime = m_vulkanWindow->getPerFrameTime();
+        if (optionTime.has_value()) {
+          auto fps = 1000.0F / optionTime.value().count();
+          auto resultTitle = fmt::format("测试，当前帧数：{:.2f}，帧生成时间：{:.2f}",
+                                         fps, optionTime.value().count());
+          m_mainWindow->setWindowTitle(QString::fromStdString(resultTitle));
+        }
+
+
         requestUpdate();
       }
     }
@@ -339,10 +410,20 @@ public:
       if (e->type() == QEvent::UpdateRequest) {
 
         m_vulkanWindow->drawFrame();
+
+        auto optionTime = m_vulkanWindow->getPerFrameTime();
+        if (optionTime.has_value()) {
+          auto fps = 1000.0F / optionTime.value().count();
+          auto resultTitle = fmt::format("测试，当前帧数：{:.1f}，帧生成时间：{:.1f}",
+                                         fps, optionTime.value().count());
+          m_mainWindow->setWindowTitle(QString::fromStdString(resultTitle));
+        }
+
         requestUpdate();
+
       } else if (e->type() == QEvent::PlatformSurface) {
 
-        auto nowEvent = dynamic_cast<QPlatformSurfaceEvent *>(e);
+        auto *nowEvent = dynamic_cast<QPlatformSurfaceEvent *>(e);
 
         //删除surface 时清理和surface 相关的内容
         if (nowEvent->surfaceEventType() ==
@@ -402,5 +483,6 @@ private:
   // VulkanWindow * m_vulkanWindow;
 
   std::unique_ptr<VulkanWindow> m_vulkanWindow;
+  QMainWindow *m_mainWindow;
   bool m_initialized = false;
 };

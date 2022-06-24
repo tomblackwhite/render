@@ -9,6 +9,7 @@ find_package(Qt5 COMPONENTS Widgets REQUIRED)
 find_package(glfw3 3.3 REQUIRED)
 find_package(Vulkan REQUIRED)
 find_package(glm REQUIRED)
+find_package(Microsoft.GSL REQUIRED)
 
 file(
   GLOB core_src
@@ -27,6 +28,7 @@ target_link_libraries(
   Qt5::Widgets
   spdlog::spdlog
   Vulkan::Vulkan
+  Microsoft.GSL::GSL
 )
 
 file(

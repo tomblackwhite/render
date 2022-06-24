@@ -17,11 +17,10 @@ int main(int argc, char *argv[]) {
     auto qVulkanInstance = std::make_unique<QVulkanInstance>();
 
     // auto vulkanWindow= std::make_unique<VulkanWindow>();
-    auto vulkanGameWindow =
-        std::make_unique<VulkanGameWindow>(qVulkanInstance.get(), path);
     MainWindow w;
-auto *widget = w.centralWidget();
-
+    auto vulkanGameWindow =
+        std::make_unique<VulkanGameWindow>(qVulkanInstance.get(), path,&w);
+    auto *widget = w.centralWidget();
     auto *layout = widget->layout();
     layout->addWidget(
         QWidget::createWindowContainer(vulkanGameWindow.release()));
