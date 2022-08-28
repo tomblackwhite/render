@@ -51,9 +51,9 @@ void VulkanWindow::createInstance() {
   }
 
   vk::ApplicationInfo appInfo{.pApplicationName = "Hello Triangle",
-                              .applicationVersion = VK_MAKE_VERSION(1, 1, 0),
+                              .applicationVersion = VK_MAKE_VERSION(1u, 1u, 0u),
                               .pEngineName = "No Engine",
-                              .engineVersion = VK_MAKE_VERSION(1, 1, 0),
+                              .engineVersion = VK_MAKE_VERSION(1u, 1u, 0u),
                               .apiVersion = VK_API_VERSION_1_1};
 
   vk::InstanceCreateInfo createInfo{.pApplicationInfo = &appInfo};
@@ -779,7 +779,8 @@ raii::ShaderModule
 VulkanWindow::createShaderModule(const std::vector<char> &code) {
   vk::ShaderModuleCreateInfo createInfo{};
   createInfo.codeSize = code.size();
-  createInfo.pCode = reinterpret_cast<const uint32_t *>(code.data());
+
+  createInfo.pCode =   std::launder(reinterpret_cast<const uint32_t *>(code.data()));
   auto shaderModule = m_device.createShaderModule(createInfo);
   return shaderModule;
 }
@@ -816,7 +817,7 @@ void VulkanWindow::createVertexBuffer() {
                stagingBuffer, stagingBufferMemory);
 
   //填充buffer数据
-  auto data = (*m_device).mapMemory(*stagingBufferMemory, 0, size);
+  auto *data = (*m_device).mapMemory(*stagingBufferMemory, 0, size);
   std::memcpy(data, m_vertices.data(), static_cast<size_t>(size));
   (*m_device).unmapMemory(*stagingBufferMemory);
 
@@ -1070,7 +1071,16 @@ void VulkanWindow::createTextureImage() {
                   decltype([](stbi_uc *stbi) { stbi_image_free(stbi); })>
       raiiPixels{pixels};
 
-  auto imageSize = static_cast<vk::DeviceSize>(texWidth * texHeight) * 4;
+
+
+  // auto imageSize = static_cast<vk::DeviceSize>(texWidth * texHeight) * 4;
+
+  texWidth=540;
+  texHeight=960;
+
+  auto imageSize = m_softRender.getFrameBuffer().size()*sizeof(Pixel);
+
+  auto const *pixelTest = m_softRender.getFrameBuffer().data();
 
   raii::Buffer stagingBuffer{nullptr};
   raii::DeviceMemory stagingBufferMemory{nullptr};
@@ -1082,11 +1092,11 @@ void VulkanWindow::createTextureImage() {
 
   auto *data = (*m_device).mapMemory(*stagingBufferMemory, 0, imageSize);
 
-  std::memcpy(data, pixels, static_cast<std::size_t>(imageSize));
+  // std::memcpy(data, raiiPixels.get(), static_cast<std::size_t>(imageSize));
+  std::memcpy(data, pixelTest, static_cast<std::size_t>(imageSize));
 
   (*m_device).unmapMemory(*stagingBufferMemory);
 
-  // stbi_image_free(pixels);
 
   createImage(static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight),
               vk::Format::eR8G8B8A8Srgb, vk::ImageTiling::eOptimal,

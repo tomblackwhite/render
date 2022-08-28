@@ -1,14 +1,26 @@
 #pragma once
-#include <QApplication>
-#include <window.hh>
+
+#include <SDL.h>
+#include <tool.hh>
+
 
 class Application {
 public:
-  Application(int argc, char *argv[]) : m_app(argc, argv){};
+  Application();
+  int OnExecute();
 
-  void run(){
+  void OnInit();
 
-  }
+  void OnEvent(SDL_Event* event);
+
+  void OnLoop();
+
+  void OnRender();
+
+  void OnCleanup();
+
+  ~Application();
+
 private:
-  QApplication m_app;
+  bool m_running;
 };

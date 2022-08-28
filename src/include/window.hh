@@ -1,9 +1,12 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <new>
 #include <fmt/format.h>
 #include <gsl/gsl>
 #include <ratio>
+
+#include <softrender.hh>
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_STATIC
@@ -39,7 +42,7 @@ const int MAX_FRAMES_IN_FLIGHT = 2;
 struct QueueFamilyIndices {
   std::optional<uint32_t> graphicsFamily;
   std::optional<uint32_t> presentFamily;
-  bool isComplete() {
+  [[nodiscard]] bool isComplete() const {
     return graphicsFamily.has_value() && presentFamily.has_value();
   }
 };
@@ -354,6 +357,9 @@ private:
   std::optional<chrono::duration<float, std::milli>> m_perFrameTime;
 
   const std::vector<const char *> m_deviceExtensions{"VK_KHR_swapchain"};
+
+  SoftRender m_softRender;
+
 #ifdef NDEBUG
   const bool m_enableValidationLayers = false;
 #else

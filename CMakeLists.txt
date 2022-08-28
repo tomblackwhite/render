@@ -6,18 +6,22 @@ project(render LANGUAGES CXX)
 
 #export compile_commands.json
 set(CMAKE_EXPORT_COMPILE_COMMANDS "YES")
+# set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_BUILD_TYPE "Debug")
 
 
 #set c++ standard
 set(CMAKE_CXX_STANDARD 20)
-#find boost for test
-#BOOST_ROOT
-#set(BOOST_ROOT "thirdparty/boost_1_75_0")
-#set(BOOST_NO_SYSTEM_PATHS "NO")
-#find_package(Boost 1.75.0 REQUIRED)
-#find_package(Threads)
-enable_testing()
+# enable_testing()
+add_compile_options(-g)
 
-add_compile_options(-g -fexceptions)
+
+include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
+
+#DEFINITIONS boost
+set(CONAN_DEFINES_BOOST "-DBOOST_STACKTRACE_USE_BACKTRACE")
+set(CONAN_COMPILE_DEFINITIONS_BOOST "BOOST_STACKTRACE_USE_BACKTRACE")
+
+conan_basic_setup(TARGETS)
+
 add_subdirectory("src")
