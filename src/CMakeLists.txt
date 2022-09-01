@@ -11,12 +11,13 @@ add_library(
   "./core/tool.cc"
   )
 target_include_directories(tool PUBLIC "./include")
-target_link_libraries(tool PUBLIC ${CONAN_TARGETS})
+target_link_libraries(tool PUBLIC CONAN_PKG::boost CONAN_PKG::sdl CONAN_PKG::fmt)
 #conan_target_link_libraries(tool PUBLIC)
 
 add_library(
   core
   "./core/application.cc"
+  "./core/vulkanrender.cc"
 )
 target_include_directories(core PUBLIC "./include")
 target_link_libraries(core PUBLIC tool)
@@ -24,7 +25,6 @@ target_link_libraries(core PUBLIC tool)
 add_executable(render main.cc)
 target_link_libraries(render PUBLIC core)
 
-message("binary dir${CMAKE_BINARY_DIR}")
 
 
 #message("${CMAKE_BINARY_DIR}${Vulkan_GLSLC_EXECUTABLE}")

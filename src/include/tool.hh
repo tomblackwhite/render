@@ -1,8 +1,5 @@
 #pragma once
 #include <SDL_error.h>
-#ifndef BOOST_STACKTRACE_USE_BACKTRACE
-#define BOOST_STACKTRACE_USE_BACKTRACE
-#endif
 #include <boost/stacktrace.hpp>
 #include <string>
 #include <system_error>

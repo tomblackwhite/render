@@ -14,5 +14,7 @@ vulkan-validationlayers/1.3.216.0
 cmake
 
 [options]
-sdl:shared=True
+#sdl:shared=True
+pulseaudio:shared=True
+libalsa:shared=True
 #spdlog:shared=True

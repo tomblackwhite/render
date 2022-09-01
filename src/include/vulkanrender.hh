@@ -3,10 +3,8 @@
 #include <cstdint>
 #include <new>
 #include <fmt/format.h>
-#include <gsl/gsl>
 #include <ratio>
-
-#include <softrender.hh>
+#include <tool.hh>
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_STATIC
@@ -22,17 +20,11 @@
 #include <iterator>
 #include <optional>
 #include <set>
-#include <spdlog/spdlog.h>
 #include <stdexcept>
 #include <string>
 #include <vector>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
-
-#include <QMainWindow>
-#include <QPlatformSurfaceEvent>
-#include <QVulkanInstance>
-#include <QWindow>
 
 namespace raii = vk::raii;
 namespace chrono = std::chrono;
@@ -103,8 +95,8 @@ struct CommandBufferDeleter {
 
   explicit CommandBufferDeleter(vk::Queue const &queue) : m_queue(queue) {}
 
-  using pointer = gsl::owner<raii::CommandBuffer *>;
-  void operator()(gsl::owner<raii::CommandBuffer *> point) {
+  using pointer = raii::CommandBuffer *;
+  void operator()(raii::CommandBuffer * point) {
 
     point->end();
     vk::SubmitInfo submitInfo{};
@@ -120,9 +112,9 @@ struct CommandBufferDeleter {
 using CommandBufferPointer =
     std::unique_ptr<raii::CommandBuffer, CommandBufferDeleter>;
 
-class VulkanWindow {
+class VulkanRender {
 public:
-  explicit VulkanWindow(std::string const &path) : m_shaderDirPath(path) {}
+  explicit VulkanRender(std::string &&path) : m_shaderDirPath(path) {}
 
   void initInstance(std::vector<std::string> &&extensions) {
 
@@ -130,8 +122,6 @@ public:
     createInstance();
   }
 
-  //
-  void initWindow(QWindow *window) { m_window = window; }
 
   void initVulkanOther(const VkSurfaceKHR &surface);
   VkInstance getVulkanInstance() { return *m_instance; }
@@ -145,7 +135,7 @@ public:
     return m_perFrameTime;
   }
 
-  ~VulkanWindow() { spdlog::info("in Vulkan Window destructor"); }
+  ~VulkanRender() { }
 
 private:
   void updateUniformBuffer(uint32_t currentImage);
@@ -344,7 +334,6 @@ private:
 
   const std::vector<uint16_t> m_indices = {0, 1, 2, 2, 3, 0};
   uint32_t m_currentFrame = 0;
-  QWindow *m_window{nullptr};
   const uint32_t m_WIDTH = 800;
   const uint32_t m_HEIGHT = 450;
   const std::vector<const char *> m_validationLayers = {
@@ -358,7 +347,7 @@ private:
 
   const std::vector<const char *> m_deviceExtensions{"VK_KHR_swapchain"};
 
-  SoftRender m_softRender;
+  //SoftRender m_softRender;
 
 #ifdef NDEBUG
   const bool m_enableValidationLayers = false;
@@ -368,127 +357,127 @@ private:
 };
 
 /*游戏窗口主要显示的window*/
-class VulkanGameWindow : public QWindow {
+// class VulkanGameWindow : public QWindow {
 
-public:
-  VulkanGameWindow(QVulkanInstance *qVulkanInstance, std::string const &path,
-                   QMainWindow *mainWindow)
-      : m_qVulkanInstance(qVulkanInstance),
-        m_vulkanWindow(new VulkanWindow(path)), m_mainWindow(mainWindow) {
+// public:
+//   VulkanGameWindow(QVulkanInstance *qVulkanInstance, std::string const &path,
+//                    QMainWindow *mainWindow)
+//       : m_qVulkanInstance(qVulkanInstance),
+//         m_vulkanWindow(new VulkanRender(path)), m_mainWindow(mainWindow) {
 
-    QWindow::setSurfaceType(QSurface::VulkanSurface);
-  }
+//     QWindow::setSurfaceType(QSurface::VulkanSurface);
+//   }
 
-  void exposeEvent(QExposeEvent *) override {
-    spdlog::info("exposeEvent");
-    if (isExposed()) {
-      if (!m_initialized) {
-        m_initialized = true;
-        init();
-        m_vulkanWindow->drawFrame();
+//   void exposeEvent(QExposeEvent *) override {
+//     spdlog::info("exposeEvent");
+//     if (isExposed()) {
+//       if (!m_initialized) {
+//         m_initialized = true;
+//         init();
+//         m_vulkanWindow->drawFrame();
 
-        auto optionTime = m_vulkanWindow->getPerFrameTime();
-        if (optionTime.has_value()) {
-          auto fps = 1000.0F / optionTime.value().count();
-          auto resultTitle = fmt::format("测试，当前帧数：{:.2f}，帧生成时间：{:.2f}",
-                                         fps, optionTime.value().count());
-          m_mainWindow->setWindowTitle(QString::fromStdString(resultTitle));
-        }
+//         auto optionTime = m_vulkanWindow->getPerFrameTime();
+//         if (optionTime.has_value()) {
+//           auto fps = 1000.0F / optionTime.value().count();
+//           auto resultTitle = fmt::format("测试，当前帧数：{:.2f}，帧生成时间：{:.2f}",
+//                                          fps, optionTime.value().count());
+//           m_mainWindow->setWindowTitle(QString::fromStdString(resultTitle));
+//         }
 
 
-        requestUpdate();
-      }
-    }
-  }
+//         requestUpdate();
+//       }
+//     }
+//   }
 
-  void resizeEvent(QResizeEvent *ev) override {
-    spdlog::info("resize");
-    if (m_initialized) {
-      m_vulkanWindow->resize();
-    }
-  }
+//   void resizeEvent(QResizeEvent *ev) override {
+//     spdlog::info("resize");
+//     if (m_initialized) {
+//       m_vulkanWindow->resize();
+//     }
+//   }
 
-  bool event(QEvent *e) override {
-    // spdlog::info("inEvent {}", e->type());
+//   bool event(QEvent *e) override {
+//     // spdlog::info("inEvent {}", e->type());
 
-    try {
+//     try {
 
-      if (e->type() == QEvent::UpdateRequest) {
+//       if (e->type() == QEvent::UpdateRequest) {
 
-        m_vulkanWindow->drawFrame();
+//         m_vulkanWindow->drawFrame();
 
-        auto optionTime = m_vulkanWindow->getPerFrameTime();
-        if (optionTime.has_value()) {
-          auto fps = 1000.0F / optionTime.value().count();
-          auto resultTitle = fmt::format("测试，当前帧数：{:.1f}，帧生成时间：{:.1f}",
-                                         fps, optionTime.value().count());
-          m_mainWindow->setWindowTitle(QString::fromStdString(resultTitle));
-        }
+//         auto optionTime = m_vulkanWindow->getPerFrameTime();
+//         if (optionTime.has_value()) {
+//           auto fps = 1000.0F / optionTime.value().count();
+//           auto resultTitle = fmt::format("测试，当前帧数：{:.1f}，帧生成时间：{:.1f}",
+//                                          fps, optionTime.value().count());
+//           m_mainWindow->setWindowTitle(QString::fromStdString(resultTitle));
+//         }
 
-        requestUpdate();
+//         requestUpdate();
 
-      } else if (e->type() == QEvent::PlatformSurface) {
+//       } else if (e->type() == QEvent::PlatformSurface) {
 
-        auto *nowEvent = dynamic_cast<QPlatformSurfaceEvent *>(e);
+//         auto *nowEvent = dynamic_cast<QPlatformSurfaceEvent *>(e);
 
-        //删除surface 时清理和surface 相关的内容
-        if (nowEvent->surfaceEventType() ==
-            QPlatformSurfaceEvent::SurfaceEventType::
-                SurfaceAboutToBeDestroyed) {
-          m_vulkanWindow->waitDrawClean();
-          m_vulkanWindow->cleanup();
-          //删除suface 才能删除vulkaninstance
-          // m_vulkanWindow.reset();
-          // auto nowPointer = m_vulkanWindow.release();
-        }
-      } else {
-        // do nothing
-      }
-    } catch (const std::exception &e) {
-      spdlog::error(e.what());
-    }
+//         //删除surface 时清理和surface 相关的内容
+//         if (nowEvent->surfaceEventType() ==
+//             QPlatformSurfaceEvent::SurfaceEventType::
+//                 SurfaceAboutToBeDestroyed) {
+//           m_vulkanWindow->waitDrawClean();
+//           m_vulkanWindow->cleanup();
+//           //删除suface 才能删除vulkaninstance
+//           // m_vulkanWindow.reset();
+//           // auto nowPointer = m_vulkanWindow.release();
+//         }
+//       } else {
+//         // do nothing
+//       }
+//     } catch (const std::exception &e) {
+//       spdlog::error(e.what());
+//     }
 
-    return QWindow::event(e);
-  }
-  virtual ~VulkanGameWindow() { spdlog::info("in VulkanGameWindow"); }
+//     return QWindow::event(e);
+//   }
+//   virtual ~VulkanGameWindow() { spdlog::info("in VulkanGameWindow"); }
 
-private:
-  //初始化vulkan 设置相关数据
-  void init() {
-    auto extensions = m_qVulkanInstance->supportedExtensions();
-    std::vector<std::string> stdExtensions;
-    stdExtensions.reserve(extensions.size());
-    std::transform(
-        extensions.constBegin(), extensions.constEnd(),
-        std::back_insert_iterator<std::vector<std::string>>(stdExtensions),
-        [](QVulkanExtension const &extension) {
-          return extension.name.toStdString();
-        });
-    for (auto &extension : stdExtensions) {
-      spdlog::info(extension);
-    }
-    m_vulkanWindow->initInstance(std::move(stdExtensions));
+// private:
+//   //初始化vulkan 设置相关数据
+//   void init() {
+//     auto extensions = m_qVulkanInstance->supportedExtensions();
+//     std::vector<std::string> stdExtensions;
+//     stdExtensions.reserve(extensions.size());
+//     std::transform(
+//         extensions.constBegin(), extensions.constEnd(),
+//         std::back_insert_iterator<std::vector<std::string>>(stdExtensions),
+//         [](QVulkanExtension const &extension) {
+//           return extension.name.toStdString();
+//         });
+//     for (auto &extension : stdExtensions) {
+//       spdlog::info(extension);
+//     }
+//     m_vulkanWindow->initInstance(std::move(stdExtensions));
 
-    auto vulkanInstance = m_vulkanWindow->getVulkanInstance();
+//     auto vulkanInstance = m_vulkanWindow->getVulkanInstance();
 
-    //设置VulkanInstance 以便创建QWindow
-    m_qVulkanInstance->setVkInstance(vulkanInstance);
-    if (!m_qVulkanInstance->create()) {
-      throw "创建qVulkanInstance 失败";
-    }
-    QWindow::setVulkanInstance(m_qVulkanInstance);
-    QWindow::create();
+//     //设置VulkanInstance 以便创建QWindow
+//     m_qVulkanInstance->setVkInstance(vulkanInstance);
+//     if (!m_qVulkanInstance->create()) {
+//       throw "创建qVulkanInstance 失败";
+//     }
+//     QWindow::setVulkanInstance(m_qVulkanInstance);
+//     QWindow::create();
 
-    //获取surface 以便初始化其他部分
-    auto surface = QVulkanInstance::surfaceForWindow(this);
-    m_vulkanWindow->initVulkanOther(surface);
-  }
+//     //获取surface 以便初始化其他部分
+//     auto surface = QVulkanInstance::surfaceForWindow(this);
+//     m_vulkanWindow->initVulkanOther(surface);
+//   }
 
-private:
-  QVulkanInstance *m_qVulkanInstance;
-  // VulkanWindow * m_vulkanWindow;
+// private:
+//   QVulkanInstance *m_qVulkanInstance;
+//   // VulkanWindow * m_vulkanWindow;
 
-  std::unique_ptr<VulkanWindow> m_vulkanWindow;
-  QMainWindow *m_mainWindow;
-  bool m_initialized = false;
-};
+//   std::unique_ptr<VulkanRender> m_vulkanWindow;
+//   QMainWindow *m_mainWindow;
+//   bool m_initialized = false;
+// };

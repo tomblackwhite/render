@@ -22,6 +22,6 @@ include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
 set(CONAN_DEFINES_BOOST "-DBOOST_STACKTRACE_USE_BACKTRACE")
 set(CONAN_COMPILE_DEFINITIONS_BOOST "BOOST_STACKTRACE_USE_BACKTRACE")
 
-conan_basic_setup(TARGETS)
+conan_basic_setup(TARGETS NO_OUTPUT_DIRS)
 
 add_subdirectory("src")
