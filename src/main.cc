@@ -5,9 +5,8 @@ int main() {
 
   try {
     Application app;
-    return app.OnExecute();
+    return app.onExecute();
   } catch (const std::exception &e) {
-
     std::cerr << e.what() << "\n";
     std::terminate();
   }

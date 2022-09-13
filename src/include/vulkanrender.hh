@@ -1,14 +1,11 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
-#include <new>
 #include <fmt/format.h>
+#include <new>
 #include <ratio>
-#include <tool.hh>
-
-#define STB_IMAGE_IMPLEMENTATION
-#define STB_IMAGE_STATIC
 #include <stb/stb_image.h>
+#include <tool.hh>
 
 #define VULKAN_HPP_NO_CONSTRUCTORS
 #define GLM_FORCE_RADIANS
@@ -96,7 +93,7 @@ struct CommandBufferDeleter {
   explicit CommandBufferDeleter(vk::Queue const &queue) : m_queue(queue) {}
 
   using pointer = raii::CommandBuffer *;
-  void operator()(raii::CommandBuffer * point) {
+  void operator()(raii::CommandBuffer *point) {
 
     point->end();
     vk::SubmitInfo submitInfo{};
@@ -114,16 +111,18 @@ using CommandBufferPointer =
 
 class VulkanRender {
 public:
-  explicit VulkanRender(std::string &&path) : m_shaderDirPath(path) {}
+  explicit VulkanRender(std::string &&path, uint32_t renderWidth,
+                        uint32_t renderHeight)
+      : m_shaderDirPath(path), m_renderWidth(renderWidth),
+        m_renderHeight(renderHeight) {}
 
-  void initInstance(std::vector<std::string> &&extensions) {
+  void initVulkanInstance(std::vector<std::string> &&extensions) {
 
     m_instanceExtensions = extensions;
     createInstance();
   }
 
-
-  void initVulkanOther(const VkSurfaceKHR &surface);
+  void initOthers(const VkSurfaceKHR &surface);
   VkInstance getVulkanInstance() { return *m_instance; }
   void waitDrawClean() { m_device.waitIdle(); };
   void cleanup();
@@ -135,12 +134,17 @@ public:
     return m_perFrameTime;
   }
 
-  ~VulkanRender() { }
+  ~VulkanRender() {}
 
 private:
-  void updateUniformBuffer(uint32_t currentImage);
 
-  void initWindow();
+  void initVulkan(const VkSurfaceKHR &surface);
+
+  void initSwapChain();
+
+  void initCommands();
+
+  void updateUniformBuffer(uint32_t currentImage);
 
   void createInstance();
   void createSyncObjects();
@@ -202,17 +206,10 @@ private:
 
   raii::ShaderModule createShaderModule(const std::vector<char> &code);
 
-  void createImageViews();
+  void createSwapChainImageViews();
 
   void createSwapChain();
 
-  vk::SurfaceFormatKHR chooseSwapSurfaceFormat(
-      const std::vector<vk::SurfaceFormatKHR> &availableFormats);
-
-  vk::PresentModeKHR chooseSwapPresentMode(
-      const std::vector<vk::PresentModeKHR> &availablePresentModes);
-
-  vk::Extent2D chooseSwapExtent(const vk::SurfaceCapabilitiesKHR &capabilities);
   void createSurface(const VkSurfaceKHR &surface);
 
   void createLogicalDevice();
@@ -226,23 +223,28 @@ private:
   //寻找当前设备支持的队列列表 图形队列列表和presentFamily
   QueueFamilyIndices findQueueFamilies(const vk::PhysicalDevice &device);
 
+
+  //get swapchainInfo
   SwapChainSupportDetails
   querySwapChainSupport(const vk::PhysicalDevice &device);
+
+  vk::SurfaceFormatKHR chooseSwapSurfaceFormat(
+      const std::vector<vk::SurfaceFormatKHR> &availableFormats);
+
+  vk::PresentModeKHR chooseSwapPresentMode(
+      const std::vector<vk::PresentModeKHR> &availablePresentModes);
+
+  vk::Extent2D chooseSwapExtent(const vk::SurfaceCapabilitiesKHR &capabilities);
+
+
 
   uint32_t findMemoryType(uint32_t typeFilter,
                           const vk::MemoryPropertyFlags &properties);
 
-  // void mainLoop() {
-  //   drawFrame();
-  //   m_device.waitIdle();
-  // }
-
-  // std::vector<const char *> getRequiredExtensions();
-
   void recreateSwapChain() {
     m_device.waitIdle();
     createSwapChain();
-    createImageViews();
+    createSwapChainImageViews();
     createRenderPass();
     createGraphicsPipeline();
     createFramebuffers();
@@ -259,7 +261,7 @@ private:
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
 
     if (!file.is_open()) {
-      throw std::runtime_error("failed to open file!");
+      App::ThrowException("failed to open file!");
     }
     size_t fileSize = static_cast<size_t>(file.tellg());
     std::vector<char> buffer;
@@ -284,9 +286,9 @@ private:
   raii::Context m_context;
   raii::Instance m_instance{nullptr};
 
-  raii::DebugUtilsMessengerEXT m_debugMessenger{nullptr};
+  // raii::DebugUtilsMessengerEXT m_debugMessenger{nullptr};
 
-  vk::SurfaceKHR m_surface{nullptr};
+  raii::SurfaceKHR m_surface{nullptr};
   raii::PhysicalDevice m_physicalDevice{nullptr};
   raii::Device m_device{nullptr};
   raii::Queue m_graphicsQueue{nullptr};
@@ -334,150 +336,25 @@ private:
 
   const std::vector<uint16_t> m_indices = {0, 1, 2, 2, 3, 0};
   uint32_t m_currentFrame = 0;
-  const uint32_t m_WIDTH = 800;
-  const uint32_t m_HEIGHT = 450;
-  const std::vector<const char *> m_validationLayers = {
-      "VK_LAYER_KHRONOS_validation"};
-
-  const std::string m_shaderDirPath;
 
   std::vector<std::string> m_instanceExtensions;
 
   std::optional<chrono::duration<float, std::milli>> m_perFrameTime;
 
-  const std::vector<const char *> m_deviceExtensions{"VK_KHR_swapchain"};
+  // render size property
+  uint32_t m_renderWidth;
+  uint32_t m_renderHeight;
 
-  //SoftRender m_softRender;
+  // shader path
+  const std::string m_shaderDirPath;
 
+  // render settings
 #ifdef NDEBUG
   const bool m_enableValidationLayers = false;
 #else
   const bool m_enableValidationLayers = true;
 #endif
+  const std::vector<const char *> m_validationLayers = {
+      "VK_LAYER_KHRONOS_validation"};
+  const std::vector<const char *> m_deviceExtensions{"VK_KHR_swapchain"};
 };
-
-/*游戏窗口主要显示的window*/
-// class VulkanGameWindow : public QWindow {
-
-// public:
-//   VulkanGameWindow(QVulkanInstance *qVulkanInstance, std::string const &path,
-//                    QMainWindow *mainWindow)
-//       : m_qVulkanInstance(qVulkanInstance),
-//         m_vulkanWindow(new VulkanRender(path)), m_mainWindow(mainWindow) {
-
-//     QWindow::setSurfaceType(QSurface::VulkanSurface);
-//   }
-
-//   void exposeEvent(QExposeEvent *) override {
-//     spdlog::info("exposeEvent");
-//     if (isExposed()) {
-//       if (!m_initialized) {
-//         m_initialized = true;
-//         init();
-//         m_vulkanWindow->drawFrame();
-
-//         auto optionTime = m_vulkanWindow->getPerFrameTime();
-//         if (optionTime.has_value()) {
-//           auto fps = 1000.0F / optionTime.value().count();
-//           auto resultTitle = fmt::format("测试，当前帧数：{:.2f}，帧生成时间：{:.2f}",
-//                                          fps, optionTime.value().count());
-//           m_mainWindow->setWindowTitle(QString::fromStdString(resultTitle));
-//         }
-
-
-//         requestUpdate();
-//       }
-//     }
-//   }
-
-//   void resizeEvent(QResizeEvent *ev) override {
-//     spdlog::info("resize");
-//     if (m_initialized) {
-//       m_vulkanWindow->resize();
-//     }
-//   }
-
-//   bool event(QEvent *e) override {
-//     // spdlog::info("inEvent {}", e->type());
-
-//     try {
-
-//       if (e->type() == QEvent::UpdateRequest) {
-
-//         m_vulkanWindow->drawFrame();
-
-//         auto optionTime = m_vulkanWindow->getPerFrameTime();
-//         if (optionTime.has_value()) {
-//           auto fps = 1000.0F / optionTime.value().count();
-//           auto resultTitle = fmt::format("测试，当前帧数：{:.1f}，帧生成时间：{:.1f}",
-//                                          fps, optionTime.value().count());
-//           m_mainWindow->setWindowTitle(QString::fromStdString(resultTitle));
-//         }
-
-//         requestUpdate();
-
-//       } else if (e->type() == QEvent::PlatformSurface) {
-
-//         auto *nowEvent = dynamic_cast<QPlatformSurfaceEvent *>(e);
-
-//         //删除surface 时清理和surface 相关的内容
-//         if (nowEvent->surfaceEventType() ==
-//             QPlatformSurfaceEvent::SurfaceEventType::
-//                 SurfaceAboutToBeDestroyed) {
-//           m_vulkanWindow->waitDrawClean();
-//           m_vulkanWindow->cleanup();
-//           //删除suface 才能删除vulkaninstance
-//           // m_vulkanWindow.reset();
-//           // auto nowPointer = m_vulkanWindow.release();
-//         }
-//       } else {
-//         // do nothing
-//       }
-//     } catch (const std::exception &e) {
-//       spdlog::error(e.what());
-//     }
-
-//     return QWindow::event(e);
-//   }
-//   virtual ~VulkanGameWindow() { spdlog::info("in VulkanGameWindow"); }
-
-// private:
-//   //初始化vulkan 设置相关数据
-//   void init() {
-//     auto extensions = m_qVulkanInstance->supportedExtensions();
-//     std::vector<std::string> stdExtensions;
-//     stdExtensions.reserve(extensions.size());
-//     std::transform(
-//         extensions.constBegin(), extensions.constEnd(),
-//         std::back_insert_iterator<std::vector<std::string>>(stdExtensions),
-//         [](QVulkanExtension const &extension) {
-//           return extension.name.toStdString();
-//         });
-//     for (auto &extension : stdExtensions) {
-//       spdlog::info(extension);
-//     }
-//     m_vulkanWindow->initInstance(std::move(stdExtensions));
-
-//     auto vulkanInstance = m_vulkanWindow->getVulkanInstance();
-
-//     //设置VulkanInstance 以便创建QWindow
-//     m_qVulkanInstance->setVkInstance(vulkanInstance);
-//     if (!m_qVulkanInstance->create()) {
-//       throw "创建qVulkanInstance 失败";
-//     }
-//     QWindow::setVulkanInstance(m_qVulkanInstance);
-//     QWindow::create();
-
-//     //获取surface 以便初始化其他部分
-//     auto surface = QVulkanInstance::surfaceForWindow(this);
-//     m_vulkanWindow->initVulkanOther(surface);
-//   }
-
-// private:
-//   QVulkanInstance *m_qVulkanInstance;
-//   // VulkanWindow * m_vulkanWindow;
-
-//   std::unique_ptr<VulkanRender> m_vulkanWindow;
-//   QMainWindow *m_mainWindow;
-//   bool m_initialized = false;
-// };

@@ -5,21 +5,22 @@
 #include <SDL_vulkan.h>
 #include <tool.hh>
 #include <vulkanrender.hh>
+#include <cstdint>
 
 class Application {
 public:
   Application();
-  int OnExecute();
+  int onExecute();
 
-  void OnInit();
+  void onInit();
 
-  void OnEvent(SDL_Event *event);
+  void onEvent(SDL_Event *event);
 
-  void OnLoop();
+  void onLoop();
 
-  void OnRender();
+  void onRender();
 
-  void OnCleanup();
+  void onCleanup();
 
   ~Application();
 
@@ -30,6 +31,10 @@ public:
 
 private:
   bool m_running;
+
   SDL_Window *m_window = nullptr;
+  uint32_t m_windowWitdth = 960;
+  uint32_t m_windowHeight = 540;
+
   VulkanRender m_vulkanRender;
 };

@@ -1,28 +1,12 @@
 #include <cstddef>
 #include <vulkanrender.hh>
 
-// void VulkanWindow::run() {
-//   initWindow();
-//   initVulkan();
-//   mainLoop();
-//   cleanup();
-// }
-
-// void VulkanWindow::initWindow() {
-//   glfwInit();
-//   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-//   glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-//   m_window = glfwCreateWindow(m_WIDTH, m_HEIGHT, "Vulkan", nullptr, nullptr);
-// }
 using std::runtime_error;
 
-void VulkanRender::initVulkanOther(const VkSurfaceKHR &surface) {
-  setupDebugMessenger();
-  createSurface(surface);
-  pickPhysicalDevice();
-  createLogicalDevice();
-
-  createCommandPool();
+void VulkanRender::initOthers(const VkSurfaceKHR &surface) {
+  initVulkan(surface);
+  initSwapChain();
+  initCommands();
 
   createTextureImage();
   createTextureImageView();
@@ -34,14 +18,28 @@ void VulkanRender::initVulkanOther(const VkSurfaceKHR &surface) {
   createUniformBuffers();
   createDescriptorPool();
   createDescriptorSets();
-  createSwapChain();
-  createImageViews();
-  createRenderPass();
 
+  createRenderPass();
   createGraphicsPipeline();
   createFramebuffers();
-  createCommandBuffers();
+
   createSyncObjects();
+}
+
+void VulkanRender::initVulkan(const VkSurfaceKHR &surface) {
+  createSurface(surface);
+  pickPhysicalDevice();
+  createLogicalDevice();
+}
+
+void VulkanRender::initSwapChain() {
+  createSwapChain();
+  createSwapChainImageViews();
+}
+
+void VulkanRender::initCommands() {
+  createCommandPool();
+  createCommandBuffers();
 }
 
 void VulkanRender::createInstance() {
@@ -98,24 +96,10 @@ void VulkanRender::populateDebugMessengerCreateInfo(
   createInfo.setPfnUserCallback(debugCallback);
 }
 
-void VulkanRender::setupDebugMessenger() {
-
-  // vk::DispatchLoaderDynamic dldy;
-  // dldy.init(*m_instance);
-  if (!m_enableValidationLayers) {
-    return;
-  }
-
-  vk::DebugUtilsMessengerCreateInfoEXT createInfo;
-
-  populateDebugMessengerCreateInfo(createInfo);
-
-  m_debugMessenger = m_instance.createDebugUtilsMessengerEXT(createInfo);
-}
-
 void VulkanRender::createSurface(const VkSurfaceKHR &surface) {
 
-  m_surface = surface;
+  //查看所有权之类删除
+  m_surface = raii::SurfaceKHR(m_instance, surface);
 }
 
 void VulkanRender::pickPhysicalDevice() {
@@ -195,7 +179,7 @@ void VulkanRender::createSwapChain() {
   }
 
   vk::SwapchainCreateInfoKHR createInfo{};
-  createInfo.surface = m_surface;
+  createInfo.surface = *m_surface;
   createInfo.minImageCount = imageCount;
   createInfo.imageFormat = surfaceFormat.format;
   createInfo.imageColorSpace = surfaceFormat.colorSpace;
@@ -229,7 +213,7 @@ void VulkanRender::createSwapChain() {
   m_swapChainExtent = extent;
 }
 
-void VulkanRender::createImageViews() {
+void VulkanRender::createSwapChainImageViews() {
 
   m_swapChainImageViews.clear();
   m_swapChainImageViews.reserve(m_swapChainImages.size());
@@ -474,20 +458,19 @@ void VulkanRender::createSyncObjects() {
 
 void VulkanRender::drawFrame() {
 
-  auto startTime = chrono::high_resolution_clock().now();
+  //auto startTime = chrono::high_resolution_clock().now();
 
   updateUniformBuffer(m_currentFrame);
   auto seconds = static_cast<uint64_t>(10e9);
 
   vk::FenceGetFdInfoKHR getInfo{};
 
+  // wait gpu finish its work
   auto result = m_device.waitForFences(*m_inFlightFences[m_currentFrame],
                                        VK_TRUE, seconds);
-
   if (result == vk::Result::eTimeout) {
     App::ThrowException(" wait fences time out");
   }
-
   m_device.resetFences(*m_inFlightFences[m_currentFrame]);
 
   vk::AcquireNextImageInfoKHR acquireInfo{};
@@ -553,19 +536,20 @@ void VulkanRender::drawFrame() {
       recreateSwapChain();
     } else if (errorCode != vk::Result::eSuccess) {
     }
-
-    m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
   }
 
-  auto endTime = chrono::high_resolution_clock().now();
+  m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 
-  m_perFrameTime = endTime - startTime;
+//  auto endTime = chrono::high_resolution_clock().now();
+
+ // m_perFrameTime = endTime - startTime;
 }
 bool VulkanRender::isDeviceSuitable(const vk::PhysicalDevice &device) {
   auto deviceProperties = device.getProperties();
 
   std::cout << fmt::format("{0},{1},{2}", deviceProperties.deviceName,
-               deviceProperties.vendorID, deviceProperties.deviceID);
+                           deviceProperties.vendorID,
+                           deviceProperties.deviceID);
 
   QueueFamilyIndices indices = findQueueFamilies(device);
 
@@ -620,21 +604,6 @@ bool VulkanRender::checkValidationLayerSupport() {
   }
   return true;
 }
-
-// std::vector<const char *> VulkanWindow::getRequiredExtensions() {
-//   uint32_t glfwExtensionCount = 0;
-//   const char **glfwExtensions;
-//   glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-
-//   std::vector<const char *> extensions(glfwExtensions,
-//                                        glfwExtensions + glfwExtensionCount);
-
-//   if (m_enableValidationLayers) {
-//     extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-//   }
-
-//   return extensions;
-// }
 
 void VulkanRender::recordCommandBuffer(const raii::CommandBuffer &commandBuffer,
                                        uint32_t imageIndex) {
@@ -694,7 +663,7 @@ VulkanRender::findQueueFamilies(const vk::PhysicalDevice &device) {
       indices.graphicsFamily = i;
     }
 
-    auto presentSupport = device.getSurfaceSupportKHR(i, m_surface);
+    auto presentSupport = device.getSurfaceSupportKHR(i, *m_surface);
 
     if (presentSupport) {
       indices.presentFamily = i;
@@ -708,9 +677,9 @@ SwapChainSupportDetails
 VulkanRender::querySwapChainSupport(const vk::PhysicalDevice &device) {
 
   SwapChainSupportDetails details;
-  details.capabilities = device.getSurfaceCapabilitiesKHR(m_surface);
-  details.formats = device.getSurfaceFormatsKHR(m_surface);
-  details.presentModes = device.getSurfacePresentModesKHR(m_surface);
+  details.capabilities = device.getSurfaceCapabilitiesKHR(*m_surface);
+  details.formats = device.getSurfaceFormatsKHR(*m_surface);
+  details.presentModes = device.getSurfacePresentModesKHR(*m_surface);
   return details;
 }
 
@@ -730,10 +699,10 @@ vk::PresentModeKHR VulkanRender::chooseSwapPresentMode(
     const std::vector<vk::PresentModeKHR> &availablePresentModes) {
   for (const auto &availablePresentMode : availablePresentModes) {
     if (availablePresentMode == vk::PresentModeKHR::eMailbox) {
-      return availablePresentMode;
+      return vk::PresentModeKHR::eImmediate;
     }
   }
-  return vk::PresentModeKHR::eFifo;
+  return vk::PresentModeKHR::eImmediate;
 }
 
 vk::Extent2D
@@ -747,10 +716,9 @@ VulkanRender::chooseSwapExtent(const vk::SurfaceCapabilitiesKHR &capabilities) {
   } else {
     int width, height;
 
-    height = m_window->height();
-    width = m_window->width();
+    height = m_renderHeight;
+    width = m_renderWidth;
 
-    spdlog::info("window size {} {}", height, width);
     vk::Extent2D actualExtent = {static_cast<uint32_t>(width),
                                  static_cast<uint32_t>(height)};
 
@@ -761,7 +729,6 @@ VulkanRender::chooseSwapExtent(const vk::SurfaceCapabilitiesKHR &capabilities) {
         std::clamp(actualExtent.height, capabilities.minImageExtent.height,
                    capabilities.maxImageExtent.height);
 
-    spdlog::info("window daxiao");
     return actualExtent;
   }
 }
@@ -834,7 +801,6 @@ VulkanRender::findMemoryType(uint32_t typeFilter,
     }
   }
   return 0;
-  spdlog::error("failed to find suitable memory type!");
 }
 
 void VulkanRender::createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
@@ -1060,14 +1026,14 @@ void VulkanRender::createTextureImage() {
                   decltype([](stbi_uc *stbi) { stbi_image_free(stbi); })>
       raiiPixels{pixels};
 
-  // auto imageSize = static_cast<vk::DeviceSize>(texWidth * texHeight) * 4;
+  auto imageSize = static_cast<vk::DeviceSize>(texWidth * texHeight) * 4;
 
-  texWidth = 540;
-  texHeight = 960;
+  // texWidth = 540;
+  // texHeight = 960;
 
-  auto imageSize = m_softRender.getFrameBuffer().size() * sizeof(Pixel);
+  // auto imageSize = m_softRender.getFrameBuffer().size() * sizeof(Pixel);
 
-  auto const *pixelTest = m_softRender.getFrameBuffer().data();
+  // auto const *pixelTest = m_softRender.getFrameBuffer().data();
 
   raii::Buffer stagingBuffer{nullptr};
   raii::DeviceMemory stagingBufferMemory{nullptr};
@@ -1080,7 +1046,7 @@ void VulkanRender::createTextureImage() {
   auto *data = (*m_device).mapMemory(*stagingBufferMemory, 0, imageSize);
 
   // std::memcpy(data, raiiPixels.get(), static_cast<std::size_t>(imageSize));
-  std::memcpy(data, pixelTest, static_cast<std::size_t>(imageSize));
+  std::memcpy(data, pixels, static_cast<std::size_t>(imageSize));
 
   (*m_device).unmapMemory(*stagingBufferMemory);
 

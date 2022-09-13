@@ -17,4 +17,16 @@ void ThrowException(string const &message, bool hasSDL) {
   throw std::runtime_error(whatStr);
 }
 
+void CheckAudioDriver(){
+  int num = SDL_GetNumAudioDrivers();
+  for(int i = 0; i < num; ++i){
+    const char *name = SDL_GetAudioDriver(i);
+    if(SDL_AudioInit(name)!=0){
+      const auto *error = SDL_GetError();
+      std::cerr << error << "\n";
+    }
+  }
+}
+
+
 } // namespace App

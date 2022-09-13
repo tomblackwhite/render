@@ -1,5 +1,5 @@
 ---
-Checks: "*,
+Checks: '*,
         -abseil-*,
         -altera-*,
         -android-*,
@@ -16,7 +16,6 @@ Checks: "*,
         -cppcoreguidelines-pro-type-reinterpret-cast,
         -readability-uppercase-literal-suffix,
         -hicpp-uppercase-literal-suffix,
-        -hicpp-signed-bitwise
+        -hicpp-signed-bitwise'
 WarningsAsErrors: ''
 HeaderFilterRegex: ''
-FormatStyle:     none
