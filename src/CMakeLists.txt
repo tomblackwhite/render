@@ -17,7 +17,7 @@ target_link_libraries(tool PUBLIC CONAN_PKG::boost CONAN_PKG::sdl CONAN_PKG::fmt
 
 add_library(
   asset_manager
-  "./core/texture.cc"
+  "./core/asset.cc"
   )
 
 set(VULKAN_PKG
@@ -30,6 +30,7 @@ target_include_directories(asset_manager PUBLIC "./include")
 target_link_libraries(asset_manager PUBLIC
   ${VULKAN_PKG}
   CONAN_PKG::stb
+  CONAN_PKG::glm
   tool)
 
 add_library(

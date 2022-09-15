@@ -127,6 +127,10 @@ void VulkanRender::createLogicalDevice() {
   std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
   std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(),
                                             indices.presentFamily.value()};
+
+  // std::cerr << fmt::format("queueGraphic {}, presentFamily {}\n",
+  //                          indices.graphicsFamily.value(),
+  //                          indices.presentFamily.value());
   auto queuePriority = 1.0F;
 
   for (uint32_t queueFamily : uniqueQueueFamilies) {
@@ -207,6 +211,7 @@ void VulkanRender::createSwapChain() {
   createInfo.oldSwapchain = *m_swapChain;
 
   m_swapChain = m_device.createSwapchainKHR(createInfo);
+
   m_swapChainImages = (*m_device).getSwapchainImagesKHR(*m_swapChain);
 
   m_swapChainImageFormat = surfaceFormat.format;
@@ -280,85 +285,37 @@ void VulkanRender::createGraphicsPipeline() {
   auto vertShaderModule = createShaderModule(vertShaderCode);
   auto fragShaderModule = createShaderModule(fragShaderCode);
 
-  vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
-  vertShaderStageInfo.stage = vk::ShaderStageFlagBits::eVertex;
-  vertShaderStageInfo.module = *vertShaderModule;
-  vertShaderStageInfo.pName = "main";
+  PipelineFactory pipelineFactory;
+  pipelineFactory.m_shaderStages.push_back(
+      VulkanInitializer::getPipelineShaderStageCreateInfo(
+          vk::ShaderStageFlagBits::eVertex, *vertShaderModule));
 
-  vk::PipelineShaderStageCreateInfo fragShaderStageInfo{};
-  fragShaderStageInfo.stage = vk::ShaderStageFlagBits::eFragment;
-  fragShaderStageInfo.module = *fragShaderModule;
-  fragShaderStageInfo.pName = "main";
+  pipelineFactory.m_shaderStages.push_back(
+      VulkanInitializer::getPipelineShaderStageCreateInfo(
+          vk::ShaderStageFlagBits::eFragment, *fragShaderModule));
 
-  vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo,
-                                                      fragShaderStageInfo};
+  pipelineFactory.m_vertexInputInfo =
+      VulkanInitializer::getPipelineVertexInputStateCreateInfo();
 
-  vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
-  auto bindingDescription = Vertex::getBindingDescription();
-  auto attributeDescription = Vertex::getAttributeDescriptions();
-  vertexInputInfo.setVertexBindingDescriptions(bindingDescription);
-  vertexInputInfo.setVertexAttributeDescriptions(attributeDescription);
+  pipelineFactory.m_inputAssembly =
+      VulkanInitializer::getPipelineInputAssemblyStateCreateInfo();
 
-  vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
-  inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
-  inputAssembly.primitiveRestartEnable = VK_FALSE;
+  pipelineFactory.m_viewPort =
+      vk::Viewport{.y = 0.0F,
+                   .width = (float)m_swapChainExtent.width,
+                   .height = (float)m_swapChainExtent.height,
+                   .minDepth = 0.0F,
+                   .maxDepth = 1.0F};
+  pipelineFactory.m_scissor = {.offset = {0, 0}, .extent = m_swapChainExtent};
 
-  vk::Viewport viewport{};
-  viewport.x = 0.0F;
-  viewport.y = 0.0F;
-  viewport.width = (float)m_swapChainExtent.width;
-  viewport.height = (float)m_swapChainExtent.height;
-  viewport.minDepth = 0.0F;
-  viewport.maxDepth = 1.0F;
+  pipelineFactory.m_rasterizer =
+      VulkanInitializer::getPipelineRasterizationStateCreateInfo();
 
-  vk::Rect2D scissor{.offset = {0, 0}, .extent = m_swapChainExtent};
-  vk::PipelineViewportStateCreateInfo viewportState{};
-  viewportState.viewportCount = 1;
-  viewportState.pViewports = &viewport;
-  viewportState.scissorCount = 1;
-  viewportState.pScissors = &scissor;
+  pipelineFactory.m_multisampling =
+      VulkanInitializer::getPipelineMultisampleStateCreateInfo();
 
-  vk::PipelineRasterizationStateCreateInfo rasterizer{};
-  rasterizer.depthClampEnable = VK_FALSE;
-  rasterizer.rasterizerDiscardEnable = VK_FALSE;
-  rasterizer.polygonMode = vk::PolygonMode::eFill;
-  rasterizer.lineWidth = 1.0f;
-  rasterizer.cullMode = vk::CullModeFlagBits::eBack;
-  rasterizer.frontFace = vk::FrontFace::eClockwise;
-  rasterizer.depthBiasEnable = VK_FALSE;
-  rasterizer.depthBiasConstantFactor = 0.0f; // Optional
-  rasterizer.depthBiasClamp = 0.0f;          // Optional
-  rasterizer.depthBiasSlopeFactor = 0.0f;    // Optional
-
-  vk::PipelineMultisampleStateCreateInfo multisampling{};
-  multisampling.sampleShadingEnable = VK_FALSE;
-  multisampling.rasterizationSamples = vk::SampleCountFlagBits::e1;
-  multisampling.minSampleShading = 1.0f;          // Optional
-  multisampling.pSampleMask = nullptr;            // Optional
-  multisampling.alphaToCoverageEnable = VK_FALSE; // Optional
-  multisampling.alphaToOneEnable = VK_FALSE;      // Optional
-
-  vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
-  colorBlendAttachment.colorWriteMask =
-      vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-      vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
-  colorBlendAttachment.blendEnable = VK_FALSE;
-  colorBlendAttachment.srcColorBlendFactor = vk::BlendFactor::eOne; // Optional
-  colorBlendAttachment.dstColorBlendFactor = vk::BlendFactor::eZero;
-  colorBlendAttachment.colorBlendOp = vk::BlendOp::eAdd;
-  colorBlendAttachment.srcAlphaBlendFactor = vk::BlendFactor::eOne; // Optional
-  colorBlendAttachment.dstAlphaBlendFactor = vk::BlendFactor::eOne; // Optional
-  colorBlendAttachment.alphaBlendOp = vk::BlendOp::eAdd;            // Optional
-
-  vk::PipelineColorBlendStateCreateInfo colorBlending{};
-  colorBlending.logicOpEnable = VK_FALSE;
-  colorBlending.logicOp = vk::LogicOp::eCopy; // Optional
-  colorBlending.attachmentCount = 1;
-  colorBlending.pAttachments = &colorBlendAttachment;
-  colorBlending.blendConstants[0] = 0.0f; // Optional
-  colorBlending.blendConstants[1] = 0.0f; // Optional
-  colorBlending.blendConstants[2] = 0.0f; // Optional
-  colorBlending.blendConstants[3] = 0.0f; // Optional
+  pipelineFactory.m_colorBlendAttachment =
+      VulkanInitializer::getPipelineColorBlendAttachmentState();
 
   std::vector<vk::DynamicState> dynamicStates = {
       vk::DynamicState::eViewport,
@@ -368,29 +325,10 @@ void VulkanRender::createGraphicsPipeline() {
   vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
 
   pipelineLayoutInfo.setSetLayouts(*m_descriptorSetLayout);
-
   m_pipelineLayout = m_device.createPipelineLayout(pipelineLayoutInfo);
 
-  vk::GraphicsPipelineCreateInfo pipelineInfo{};
-  pipelineInfo.stageCount = 2;
-  pipelineInfo.pStages = shaderStages;
-  pipelineInfo.pVertexInputState = &vertexInputInfo;
-  pipelineInfo.pInputAssemblyState = &inputAssembly;
-  pipelineInfo.pViewportState = &viewportState;
-  pipelineInfo.pRasterizationState = &rasterizer;
-  pipelineInfo.pMultisampleState = &multisampling;
-  pipelineInfo.pDepthStencilState = nullptr; // Optional
-  pipelineInfo.pColorBlendState = &colorBlending;
-  pipelineInfo.pDynamicState = nullptr; // Optional
-  pipelineInfo.layout = *m_pipelineLayout;
-
-  pipelineInfo.renderPass = *m_renderPass;
-  pipelineInfo.subpass = 0;
-
-  pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
-  pipelineInfo.basePipelineIndex = -1;
-
-  m_graphicsPipeline = m_device.createGraphicsPipeline(nullptr, pipelineInfo);
+  pipelineFactory.m_pipelineLayout = *m_pipelineLayout;
+  m_graphicsPipeline = pipelineFactory.buildPipeline(m_device, *m_renderPass);
 }
 
 void VulkanRender::createFramebuffers() {
@@ -417,10 +355,14 @@ void VulkanRender::createCommandPool() {
   QueueFamilyIndices queueFamilyIndices = findQueueFamilies(*m_physicalDevice);
 
   vk::CommandPoolCreateInfo poolInfo{};
+
   poolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
   poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value();
 
-  m_commandPool = m_device.createCommandPool(poolInfo);
+  for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    m_commandPools.push_back(m_device.createCommandPool(poolInfo));
+  }
+  // m_commandPool = m_device.createCommandPool(poolInfo);
 }
 
 void VulkanRender::createCommandBuffers() {
@@ -429,12 +371,17 @@ void VulkanRender::createCommandBuffers() {
 
   m_commandBuffers.reserve(MAX_FRAMES_IN_FLIGHT);
   auto bufferSize = MAX_FRAMES_IN_FLIGHT;
-  vk::CommandBufferAllocateInfo allocInfo{};
-  allocInfo.commandPool = *m_commandPool;
-  allocInfo.level = vk::CommandBufferLevel::ePrimary;
-  allocInfo.commandBufferCount = static_cast<uint32_t>(bufferSize);
+  for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    vk::CommandBufferAllocateInfo allocInfo{};
+    allocInfo.commandPool = *m_commandPools[i];
+    allocInfo.level = vk::CommandBufferLevel::ePrimary;
+    allocInfo.commandBufferCount = 1;
 
-  m_commandBuffers = m_device.allocateCommandBuffers(allocInfo);
+    auto commandBuffers = m_device.allocateCommandBuffers(allocInfo);
+    m_commandBuffers.insert(m_commandBuffers.end(),
+                            std::make_move_iterator(commandBuffers.begin()),
+                            std::make_move_iterator(commandBuffers.end()));
+  }
 }
 
 void VulkanRender::createSyncObjects() {
@@ -458,20 +405,10 @@ void VulkanRender::createSyncObjects() {
 
 void VulkanRender::drawFrame() {
 
-  //auto startTime = chrono::high_resolution_clock().now();
+  // auto startTime = chrono::high_resolution_clock().now();
 
-  updateUniformBuffer(m_currentFrame);
+  // updateUniformBuffer(m_currentFrame);
   auto seconds = static_cast<uint64_t>(10e9);
-
-  vk::FenceGetFdInfoKHR getInfo{};
-
-  // wait gpu finish its work
-  auto result = m_device.waitForFences(*m_inFlightFences[m_currentFrame],
-                                       VK_TRUE, seconds);
-  if (result == vk::Result::eTimeout) {
-    App::ThrowException(" wait fences time out");
-  }
-  m_device.resetFences(*m_inFlightFences[m_currentFrame]);
 
   vk::AcquireNextImageInfoKHR acquireInfo{};
 
@@ -479,9 +416,9 @@ void VulkanRender::drawFrame() {
   // acquireInfo.timeout = seconds;
   // acquireInfo.semaphore = *m_imageAvailableSemaphores[m_currentFrame];
   // acquireInfo.deviceMask = UINT32_MAX;
-
+  // std::vector<std::future<uint32_t>> funtures;
   auto [acquireResult, imageIndex] = (*m_device).acquireNextImageKHR(
-      *m_swapChain, seconds, *m_imageAvailableSemaphores[m_currentFrame]);
+      *m_swapChain, UINT64_MAX, *m_imageAvailableSemaphores[m_currentFrame]);
 
   if (acquireResult == vk::Result::eErrorOutOfDateKHR) {
     recreateSwapChain();
@@ -489,7 +426,18 @@ void VulkanRender::drawFrame() {
   } else if (acquireResult != vk::Result::eSuccess &&
              acquireResult != vk::Result::eSuboptimalKHR) {
   }
+  //    imageIndexs.push_back(drawFrameAsync(imageIndex, i));
+  // funtures.push_back(std::async(std::mem_fn(&VulkanRender::drawFrameAsync),
+  //                               this, imageIndex, i));
 
+  // wait command buffer finish its work
+  // because buffer has to be completed
+  auto result = m_device.waitForFences(*m_inFlightFences[m_currentFrame],
+                                       VK_TRUE, seconds);
+  if (result == vk::Result::eTimeout) {
+    App::ThrowException(" wait fences time out");
+  }
+  m_device.resetFences(*m_inFlightFences[m_currentFrame]);
   m_commandBuffers[m_currentFrame].reset();
 
   recordCommandBuffer(m_commandBuffers[m_currentFrame], imageIndex);
@@ -503,8 +451,8 @@ void VulkanRender::drawFrame() {
   vk::CommandBuffer commandBuffers[] = {*m_commandBuffers[m_currentFrame]};
   submitInfo.waitSemaphoreCount = 1;
   submitInfo.pWaitSemaphores = waitSemaphores;
-  submitInfo.pWaitDstStageMask = waitStages;
 
+  submitInfo.setWaitDstStageMask(waitStages);
   submitInfo.commandBufferCount = 1;
   submitInfo.pCommandBuffers = commandBuffers;
 
@@ -515,6 +463,7 @@ void VulkanRender::drawFrame() {
 
   m_graphicsQueue.submit(submitInfo, *m_inFlightFences[m_currentFrame]);
 
+  // auto imageIndex = imageIndexs[i];
   vk::PresentInfoKHR presentInfo{};
   presentInfo.waitSemaphoreCount = 1;
   presentInfo.pWaitSemaphores = signalSemaphores;
@@ -540,17 +489,56 @@ void VulkanRender::drawFrame() {
 
   m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 
-//  auto endTime = chrono::high_resolution_clock().now();
+  //  auto endTime = chrono::high_resolution_clock().now();
 
- // m_perFrameTime = endTime - startTime;
+  // m_perFrameTime = endTime - startTime;
 }
+
+// uint32_t VulkanRender::drawFrameAsync(uint32_t currentImage,
+//                                       uint32_t currentSyncIndex) {
+
+//   auto seconds = static_cast<uint64_t>(10e9);
+//   auto result = m_device.waitForFences(*m_inFlightFences[currentSyncIndex],
+//                                        VK_TRUE, seconds);
+//   if (result == vk::Result::eTimeout) {
+//     App::ThrowException(" wait fences time out");
+//   }
+//   m_device.resetFences(*m_inFlightFences[currentSyncIndex]);
+//   m_commandBuffers[currentSyncIndex].reset();
+
+//   recordCommandBuffer(m_commandBuffers[currentSyncIndex], currentImage);
+
+//   vk::SubmitInfo submitInfo{};
+
+//   vk::Semaphore waitSemaphores[] = {
+//       *m_imageAvailableSemaphores[currentSyncIndex]};
+//   vk::PipelineStageFlags waitStages[] = {
+//       vk::PipelineStageFlagBits::eColorAttachmentOutput};
+//   vk::CommandBuffer commandBuffers[] = {*m_commandBuffers[currentSyncIndex]};
+//   submitInfo.waitSemaphoreCount = 1;
+//   submitInfo.pWaitSemaphores = waitSemaphores;
+//   submitInfo.pWaitDstStageMask = waitStages;
+
+//   submitInfo.commandBufferCount = 1;
+//   submitInfo.pCommandBuffers = commandBuffers;
+
+//   vk::Semaphore signalSemaphores[] = {
+//       *m_renderFinishedSemaphores[currentSyncIndex]};
+//   submitInfo.signalSemaphoreCount = 1;
+//   submitInfo.pSignalSemaphores = signalSemaphores;
+
+//   m_graphicsQueues[currentSyncIndex].submit(
+//       submitInfo, *m_inFlightFences[currentSyncIndex]);
+//   return currentImage;
+// }
 bool VulkanRender::isDeviceSuitable(const vk::PhysicalDevice &device) {
   auto deviceProperties = device.getProperties();
 
-  std::cout << fmt::format("{0},{1},{2}", deviceProperties.deviceName,
-                           deviceProperties.vendorID,
-                           deviceProperties.deviceID);
-
+#ifdef DEBUG
+  std::cout << fmt::format(
+      "deviceInfo {0},{1},{2}\n", deviceProperties.deviceName,
+      deviceProperties.vendorID, deviceProperties.deviceID);
+#endif
   QueueFamilyIndices indices = findQueueFamilies(device);
 
   bool extensionsSupported = checkDeviceExtensionSupport(device);
@@ -584,7 +572,6 @@ bool VulkanRender::checkDeviceExtensionSupport(
 
   return requiredExtensions.empty();
 }
-
 bool VulkanRender::checkValidationLayerSupport() {
 
   auto availableLayers = vk::enumerateInstanceLayerProperties();
@@ -620,30 +607,31 @@ void VulkanRender::recordCommandBuffer(const raii::CommandBuffer &commandBuffer,
   renderPassInfo.renderArea.offset = vk::Offset2D{0, 0};
   renderPassInfo.renderArea.extent = m_swapChainExtent;
 
-  vk::ArrayWrapper1D<float, 4> array{{0.0f, 0.0f, 0.0f, 1.0f}};
+  vk::ArrayWrapper1D<float, 4> array{{0.0f, 1.0f, 0.0f, 1.0f}};
 
   vk::ClearValue clearColor{.color = {std::move(array)}};
-  renderPassInfo.clearValueCount = 1;
-  renderPassInfo.pClearValues = &clearColor;
+  renderPassInfo.setClearValues(clearColor);
 
   commandBuffer.beginRenderPass(renderPassInfo, vk::SubpassContents::eInline);
+
   commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                              *m_graphicsPipeline);
 
-  vk::Buffer vertexBuffers[] = {*m_vertexBuffer};
-  vk::DeviceSize offsets[] = {0};
-  commandBuffer.bindVertexBuffers(0, vertexBuffers, offsets);
+  // vk::Buffer vertexBuffers[] = {*m_vertexBuffer};
+  // vk::DeviceSize offsets[] = {0};
+  // commandBuffer.bindVertexBuffers(0, vertexBuffers, offsets);
 
-  commandBuffer.bindIndexBuffer(*m_indexBuffer, 0, vk::IndexType::eUint16);
+  // commandBuffer.bindIndexBuffer(*m_indexBuffer, 0, vk::IndexType::eUint16);
 
-  commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
-                                   *m_pipelineLayout, 0,
-                                   *m_descriptorSets[m_currentFrame], {});
+  // commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+  //                                   *m_pipelineLayout, 0,
+  //                                   *m_descriptorSets[m_currentFrame], {});
 
-  commandBuffer.drawIndexed(static_cast<uint32_t>(m_indices.size()), 1, 0, 0,
-                            0);
+  // commandBuffer.drawIndexed(static_cast<uint32_t>(m_indices.size()), 1, 0, 0,
+  //                           0);
 
-  //  commandBuffer.draw(static_cast<uint32_t>(m_vertices.size()), 1, 0, 0);
+  // commandBuffer.drawIndexed(3, 1, 0, 0, 0);
+  commandBuffer.draw(3, 1, 0, 0);
 
   commandBuffer.endRenderPass();
 
@@ -752,7 +740,7 @@ void VulkanRender::cleanup() {
 
   m_commandBuffers.clear();
 
-  m_commandPool.clear();
+  m_commandPools.clear();
   m_swapChainFramebuffers.clear();
   m_graphicsPipeline.clear();
   m_pipelineLayout.clear();
@@ -1108,7 +1096,7 @@ void VulkanRender::createImage(uint32_t width, uint32_t height,
 CommandBufferPointer VulkanRender::beginSingleTimeCommands() {
   vk::CommandBufferAllocateInfo allocInfo{};
   allocInfo.setLevel(vk::CommandBufferLevel::ePrimary);
-  allocInfo.setCommandPool(*m_commandPool);
+  allocInfo.setCommandPool(*m_commandPools[0]);
   allocInfo.setCommandBufferCount(1);
   auto commandBuffers = m_device.allocateCommandBuffers(allocInfo);
 
@@ -1239,4 +1227,111 @@ void VulkanRender::createTextureSampler() {
   samplerInfo.maxLod = 0.0F;
 
   m_textureSampler = m_device.createSampler(samplerInfo);
+}
+
+vk::PipelineShaderStageCreateInfo
+VulkanInitializer::getPipelineShaderStageCreateInfo(
+    vk::ShaderStageFlagBits stage, vk::ShaderModule shaderModule) {
+
+  vk::PipelineShaderStageCreateInfo shaderStageInfo{};
+  shaderStageInfo.stage = stage;
+  shaderStageInfo.module = shaderModule;
+  shaderStageInfo.pName = "main";
+  return shaderStageInfo;
+}
+vk::PipelineVertexInputStateCreateInfo
+VulkanInitializer::getPipelineVertexInputStateCreateInfo() {
+
+  vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
+  auto bindingDescription = Vertex::getBindingDescription();
+  auto attributeDescription = Vertex::getAttributeDescriptions();
+  // vertexInputInfo.setVertexBindingDescriptions(bindingDescription);
+  // vertexInputInfo.setVertexAttributeDescriptions(attributeDescription);
+  return vertexInputInfo;
+}
+vk::PipelineInputAssemblyStateCreateInfo
+VulkanInitializer::getPipelineInputAssemblyStateCreateInfo() {
+  vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
+  inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
+  inputAssembly.primitiveRestartEnable = VK_FALSE;
+  return inputAssembly;
+}
+vk::PipelineRasterizationStateCreateInfo
+VulkanInitializer::getPipelineRasterizationStateCreateInfo() {
+  vk::PipelineRasterizationStateCreateInfo rasterizer{};
+  rasterizer.depthClampEnable = VK_FALSE;
+  rasterizer.rasterizerDiscardEnable = VK_FALSE;
+  rasterizer.polygonMode = vk::PolygonMode::eFill;
+  rasterizer.lineWidth = 1.0f;
+  rasterizer.cullMode = vk::CullModeFlagBits::eBack;
+  rasterizer.frontFace = vk::FrontFace::eClockwise;
+  rasterizer.depthBiasEnable = VK_FALSE;
+  rasterizer.depthBiasConstantFactor = 0.0f; // Optional
+  rasterizer.depthBiasClamp = 0.0f;          // Optional
+  rasterizer.depthBiasSlopeFactor = 0.0f;    // Optional
+  return rasterizer;
+}
+vk::PipelineMultisampleStateCreateInfo
+VulkanInitializer::getPipelineMultisampleStateCreateInfo() {
+
+  vk::PipelineMultisampleStateCreateInfo multisampling{};
+  multisampling.sampleShadingEnable = VK_FALSE;
+  multisampling.rasterizationSamples = vk::SampleCountFlagBits::e1;
+  multisampling.minSampleShading = 1.0f;          // Optional
+  multisampling.pSampleMask = nullptr;            // Optional
+  multisampling.alphaToCoverageEnable = VK_FALSE; // Optional
+  multisampling.alphaToOneEnable = VK_FALSE;      // Optional
+  return multisampling;
+}
+vk::PipelineColorBlendAttachmentState
+VulkanInitializer::getPipelineColorBlendAttachmentState() {
+  vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
+  colorBlendAttachment.colorWriteMask =
+      vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+      vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
+  colorBlendAttachment.blendEnable = VK_FALSE;
+  colorBlendAttachment.srcColorBlendFactor = vk::BlendFactor::eOne; // Optional
+  colorBlendAttachment.dstColorBlendFactor = vk::BlendFactor::eZero;
+  colorBlendAttachment.colorBlendOp = vk::BlendOp::eAdd;
+  colorBlendAttachment.srcAlphaBlendFactor = vk::BlendFactor::eOne; // Optional
+  colorBlendAttachment.dstAlphaBlendFactor = vk::BlendFactor::eOne; // Optional
+  colorBlendAttachment.alphaBlendOp = vk::BlendOp::eAdd;            // Optional
+  return colorBlendAttachment;
+}
+
+raii::Pipeline PipelineFactory::buildPipeline(const raii::Device &device,
+                                              vk::RenderPass pass) {
+  vk::PipelineViewportStateCreateInfo viewportState = {};
+  viewportState.setViewports(m_viewPort);
+  viewportState.setScissors(m_scissor);
+
+  vk::PipelineColorBlendStateCreateInfo colorBlending{};
+  colorBlending.logicOpEnable = VK_FALSE;
+  colorBlending.logicOp = vk::LogicOp::eCopy; // Optional
+  colorBlending.setAttachments(m_colorBlendAttachment);
+  colorBlending.blendConstants[0] = 0.0f; // Optional
+  colorBlending.blendConstants[1] = 0.0f; // Optional
+  colorBlending.blendConstants[2] = 0.0f; // Optional
+  colorBlending.blendConstants[3] = 0.0f; // Optional
+
+  vk::GraphicsPipelineCreateInfo pipelineInfo{};
+  pipelineInfo.setStages(m_shaderStages);
+  pipelineInfo.pVertexInputState = &m_vertexInputInfo;
+  pipelineInfo.pInputAssemblyState = &m_inputAssembly;
+  pipelineInfo.pViewportState = &viewportState;
+  pipelineInfo.pRasterizationState = &m_rasterizer;
+  pipelineInfo.pMultisampleState = &m_multisampling;
+  pipelineInfo.pDepthStencilState = nullptr; // Optional
+  pipelineInfo.pColorBlendState = &colorBlending;
+  pipelineInfo.pDynamicState = nullptr; // Optional
+  pipelineInfo.layout = m_pipelineLayout;
+
+  pipelineInfo.renderPass = pass;
+  pipelineInfo.subpass = 0;
+
+  pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
+  pipelineInfo.basePipelineIndex = -1;
+
+  auto graphicsPipeline = device.createGraphicsPipeline(nullptr, pipelineInfo);
+  return graphicsPipeline;
 }

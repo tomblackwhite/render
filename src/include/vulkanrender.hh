@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <fmt/format.h>
+#include <future>
 #include <new>
 #include <ratio>
 #include <stb/stb_image.h>
@@ -137,12 +138,14 @@ public:
   ~VulkanRender() {}
 
 private:
-
   void initVulkan(const VkSurfaceKHR &surface);
 
   void initSwapChain();
 
   void initCommands();
+
+  // call by main drawFrame
+  uint32_t drawFrameAsync(uint32_t currentImage, uint32_t currentSyncIndex);
 
   void updateUniformBuffer(uint32_t currentImage);
 
@@ -223,8 +226,7 @@ private:
   //寻找当前设备支持的队列列表 图形队列列表和presentFamily
   QueueFamilyIndices findQueueFamilies(const vk::PhysicalDevice &device);
 
-
-  //get swapchainInfo
+  // get swapchainInfo
   SwapChainSupportDetails
   querySwapChainSupport(const vk::PhysicalDevice &device);
 
@@ -235,8 +237,6 @@ private:
       const std::vector<vk::PresentModeKHR> &availablePresentModes);
 
   vk::Extent2D chooseSwapExtent(const vk::SurfaceCapabilitiesKHR &capabilities);
-
-
 
   uint32_t findMemoryType(uint32_t typeFilter,
                           const vk::MemoryPropertyFlags &properties);
@@ -321,7 +321,7 @@ private:
 
   raii::Pipeline m_graphicsPipeline{nullptr};
   std::vector<raii::Framebuffer> m_swapChainFramebuffers;
-  raii::CommandPool m_commandPool{nullptr};
+  std::vector<raii::CommandPool> m_commandPools;
 
   std::vector<raii::CommandBuffer> m_commandBuffers;
   std::vector<raii::Semaphore> m_imageAvailableSemaphores;
@@ -357,4 +357,36 @@ private:
   const std::vector<const char *> m_validationLayers = {
       "VK_LAYER_KHRONOS_validation"};
   const std::vector<const char *> m_deviceExtensions{"VK_KHR_swapchain"};
+};
+
+struct VulkanInitializer {
+  static vk::PipelineShaderStageCreateInfo
+  getPipelineShaderStageCreateInfo(vk::ShaderStageFlagBits stage,
+                                   vk::ShaderModule shaderModule);
+  static vk::PipelineVertexInputStateCreateInfo
+  getPipelineVertexInputStateCreateInfo();
+  static vk::PipelineInputAssemblyStateCreateInfo
+  getPipelineInputAssemblyStateCreateInfo();
+  static vk::PipelineRasterizationStateCreateInfo
+  getPipelineRasterizationStateCreateInfo();
+  static vk::PipelineMultisampleStateCreateInfo
+  getPipelineMultisampleStateCreateInfo();
+  static vk::PipelineColorBlendAttachmentState
+  getPipelineColorBlendAttachmentState();
+};
+
+// build pipeLine Factory
+class PipelineFactory {
+public:
+  std::vector<vk::PipelineShaderStageCreateInfo> m_shaderStages;
+  vk::PipelineVertexInputStateCreateInfo m_vertexInputInfo;
+  vk::PipelineInputAssemblyStateCreateInfo m_inputAssembly;
+  vk::Viewport m_viewPort;
+  vk::Rect2D m_scissor;
+  vk::PipelineRasterizationStateCreateInfo m_rasterizer;
+  vk::PipelineColorBlendAttachmentState m_colorBlendAttachment;
+  vk::PipelineMultisampleStateCreateInfo m_multisampling;
+  vk::PipelineLayout m_pipelineLayout;
+
+  raii::Pipeline buildPipeline(raii::Device const &device, vk::RenderPass pass);
 };
