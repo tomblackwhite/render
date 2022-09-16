@@ -286,6 +286,7 @@ void VulkanRender::createGraphicsPipeline() {
   auto fragShaderModule = createShaderModule(fragShaderCode);
 
   PipelineFactory pipelineFactory;
+ // pipelineFactory
   pipelineFactory.m_shaderStages.push_back(
       VulkanInitializer::getPipelineShaderStageCreateInfo(
           vk::ShaderStageFlagBits::eVertex, *vertShaderModule));
@@ -444,34 +445,26 @@ void VulkanRender::drawFrame() {
 
   vk::SubmitInfo submitInfo{};
 
-  vk::Semaphore waitSemaphores[] = {
+  std::array waitSemaphores = {
       *m_imageAvailableSemaphores[m_currentFrame]};
-  vk::PipelineStageFlags waitStages[] = {
-      vk::PipelineStageFlagBits::eColorAttachmentOutput};
-  vk::CommandBuffer commandBuffers[] = {*m_commandBuffers[m_currentFrame]};
-  submitInfo.waitSemaphoreCount = 1;
-  submitInfo.pWaitSemaphores = waitSemaphores;
+  auto waitStages = std::to_array<vk::PipelineStageFlags>({
+      vk::PipelineStageFlagBits::eColorAttachmentOutput});
+  std::array commandBuffers = {*m_commandBuffers[m_currentFrame]};
+  submitInfo.setWaitSemaphores(waitSemaphores);
 
   submitInfo.setWaitDstStageMask(waitStages);
-  submitInfo.commandBufferCount = 1;
-  submitInfo.pCommandBuffers = commandBuffers;
-
-  vk::Semaphore signalSemaphores[] = {
+  submitInfo.setCommandBuffers(commandBuffers);
+  std::array signalSemaphores = {
       *m_renderFinishedSemaphores[m_currentFrame]};
-  submitInfo.signalSemaphoreCount = 1;
-  submitInfo.pSignalSemaphores = signalSemaphores;
-
+  submitInfo.setSignalSemaphores(signalSemaphores);
   m_graphicsQueue.submit(submitInfo, *m_inFlightFences[m_currentFrame]);
 
   // auto imageIndex = imageIndexs[i];
   vk::PresentInfoKHR presentInfo{};
-  presentInfo.waitSemaphoreCount = 1;
-  presentInfo.pWaitSemaphores = signalSemaphores;
-  vk::SwapchainKHR swapChains[] = {*m_swapChain};
-  presentInfo.swapchainCount = 1;
-  presentInfo.pSwapchains = swapChains;
-  presentInfo.pImageIndices = &imageIndex;
-
+  presentInfo.setWaitSemaphores(signalSemaphores);
+  std::array swapChains = {*m_swapChain};
+  presentInfo.setSwapchains(swapChains);
+  presentInfo.setImageIndices(imageIndex);
   presentInfo.pResults = nullptr;
 
   try {
@@ -494,43 +487,6 @@ void VulkanRender::drawFrame() {
   // m_perFrameTime = endTime - startTime;
 }
 
-// uint32_t VulkanRender::drawFrameAsync(uint32_t currentImage,
-//                                       uint32_t currentSyncIndex) {
-
-//   auto seconds = static_cast<uint64_t>(10e9);
-//   auto result = m_device.waitForFences(*m_inFlightFences[currentSyncIndex],
-//                                        VK_TRUE, seconds);
-//   if (result == vk::Result::eTimeout) {
-//     App::ThrowException(" wait fences time out");
-//   }
-//   m_device.resetFences(*m_inFlightFences[currentSyncIndex]);
-//   m_commandBuffers[currentSyncIndex].reset();
-
-//   recordCommandBuffer(m_commandBuffers[currentSyncIndex], currentImage);
-
-//   vk::SubmitInfo submitInfo{};
-
-//   vk::Semaphore waitSemaphores[] = {
-//       *m_imageAvailableSemaphores[currentSyncIndex]};
-//   vk::PipelineStageFlags waitStages[] = {
-//       vk::PipelineStageFlagBits::eColorAttachmentOutput};
-//   vk::CommandBuffer commandBuffers[] = {*m_commandBuffers[currentSyncIndex]};
-//   submitInfo.waitSemaphoreCount = 1;
-//   submitInfo.pWaitSemaphores = waitSemaphores;
-//   submitInfo.pWaitDstStageMask = waitStages;
-
-//   submitInfo.commandBufferCount = 1;
-//   submitInfo.pCommandBuffers = commandBuffers;
-
-//   vk::Semaphore signalSemaphores[] = {
-//       *m_renderFinishedSemaphores[currentSyncIndex]};
-//   submitInfo.signalSemaphoreCount = 1;
-//   submitInfo.pSignalSemaphores = signalSemaphores;
-
-//   m_graphicsQueues[currentSyncIndex].submit(
-//       submitInfo, *m_inFlightFences[currentSyncIndex]);
-//   return currentImage;
-// }
 bool VulkanRender::isDeviceSuitable(const vk::PhysicalDevice &device) {
   auto deviceProperties = device.getProperties();
 
