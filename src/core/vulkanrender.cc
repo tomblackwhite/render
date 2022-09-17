@@ -8,16 +8,16 @@ void VulkanRender::initOthers(const VkSurfaceKHR &surface) {
   initSwapChain();
   initCommands();
 
-  createTextureImage();
-  createTextureImageView();
-  createTextureSampler();
+  loadMeshs();
+  // createTextureImage();
+  // createTextureImageView();
+  // createTextureSampler();
 
-  createDescriptorSetLayout();
-  createVertexBuffer();
-  createIndexBuffer();
-  createUniformBuffers();
-  createDescriptorPool();
-  createDescriptorSets();
+  // createDescriptorSetLayout();
+  // createIndexBuffer();
+  // createUniformBuffers();
+  // createDescriptorPool();
+  // createDescriptorSets();
 
   createRenderPass();
   createGraphicsPipeline();
@@ -30,6 +30,13 @@ void VulkanRender::initVulkan(const VkSurfaceKHR &surface) {
   createSurface(surface);
   pickPhysicalDevice();
   createLogicalDevice();
+  VmaAllocatorCreateInfo createInfo{};
+
+  createInfo.vulkanApiVersion = VK_API_VERSION_1_3;
+  createInfo.device = *m_device;
+  createInfo.physicalDevice = *m_physicalDevice;
+  createInfo.instance = *m_instance;
+  m_vulkanMemory = std::make_unique<App::VulkanMemory>(createInfo);
 }
 
 void VulkanRender::initSwapChain() {
@@ -286,7 +293,8 @@ void VulkanRender::createGraphicsPipeline() {
   auto fragShaderModule = createShaderModule(fragShaderCode);
 
   PipelineFactory pipelineFactory;
- // pipelineFactory
+
+  // pipelineFactory
   pipelineFactory.m_shaderStages.push_back(
       VulkanInitializer::getPipelineShaderStageCreateInfo(
           vk::ShaderStageFlagBits::eVertex, *vertShaderModule));
@@ -295,8 +303,10 @@ void VulkanRender::createGraphicsPipeline() {
       VulkanInitializer::getPipelineShaderStageCreateInfo(
           vk::ShaderStageFlagBits::eFragment, *fragShaderModule));
 
+  //保持生命周期
+  auto inputDescriptor = App::Vertex::getVertexDescription();
   pipelineFactory.m_vertexInputInfo =
-      VulkanInitializer::getPipelineVertexInputStateCreateInfo();
+      VulkanInitializer::getPipelineVertexInputStateCreateInfo(inputDescriptor);
 
   pipelineFactory.m_inputAssembly =
       VulkanInitializer::getPipelineInputAssemblyStateCreateInfo();
@@ -323,9 +333,16 @@ void VulkanRender::createGraphicsPipeline() {
       vk::DynamicState::eLineWidth,
   };
 
-  vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
+  auto pipelineLayoutInfo = VulkanInitializer::getPipelineLayoutCreateInfo();
 
-  pipelineLayoutInfo.setSetLayouts(*m_descriptorSetLayout);
+  vk::PushConstantRange pushConstant = {};
+  pushConstant.setOffset(0);
+  pushConstant.setSize(sizeof(App::MeshPushConstants));
+  pushConstant.setStageFlags(vk::ShaderStageFlagBits::eVertex);
+
+  pipelineLayoutInfo.setPushConstantRanges(pushConstant);
+
+  // pipelineLayoutInfo.setSetLayouts(*m_descriptorSetLayout);
   m_pipelineLayout = m_device.createPipelineLayout(pipelineLayoutInfo);
 
   pipelineFactory.m_pipelineLayout = *m_pipelineLayout;
@@ -337,12 +354,11 @@ void VulkanRender::createFramebuffers() {
   m_swapChainFramebuffers.reserve(m_swapChainImageViews.size());
 
   for (size_t i = 0; i < m_swapChainImageViews.size(); i++) {
-    vk::ImageView attachments[] = {*m_swapChainImageViews[i]};
+    std::array attachments = {*m_swapChainImageViews[i]};
 
     vk::FramebufferCreateInfo framebufferInfo{};
     framebufferInfo.renderPass = *m_renderPass;
-    framebufferInfo.attachmentCount = 1;
-    framebufferInfo.pAttachments = attachments;
+    framebufferInfo.setAttachments(attachments);
     framebufferInfo.width = m_swapChainExtent.width;
     framebufferInfo.height = m_swapChainExtent.height;
     framebufferInfo.layers = 1;
@@ -445,17 +461,15 @@ void VulkanRender::drawFrame() {
 
   vk::SubmitInfo submitInfo{};
 
-  std::array waitSemaphores = {
-      *m_imageAvailableSemaphores[m_currentFrame]};
-  auto waitStages = std::to_array<vk::PipelineStageFlags>({
-      vk::PipelineStageFlagBits::eColorAttachmentOutput});
+  std::array waitSemaphores = {*m_imageAvailableSemaphores[m_currentFrame]};
+  auto waitStages = std::to_array<vk::PipelineStageFlags>(
+      {vk::PipelineStageFlagBits::eColorAttachmentOutput});
   std::array commandBuffers = {*m_commandBuffers[m_currentFrame]};
   submitInfo.setWaitSemaphores(waitSemaphores);
 
   submitInfo.setWaitDstStageMask(waitStages);
   submitInfo.setCommandBuffers(commandBuffers);
-  std::array signalSemaphores = {
-      *m_renderFinishedSemaphores[m_currentFrame]};
+  std::array signalSemaphores = {*m_renderFinishedSemaphores[m_currentFrame]};
   submitInfo.setSignalSemaphores(signalSemaphores);
   m_graphicsQueue.submit(submitInfo, *m_inFlightFences[m_currentFrame]);
 
@@ -563,7 +577,7 @@ void VulkanRender::recordCommandBuffer(const raii::CommandBuffer &commandBuffer,
   renderPassInfo.renderArea.offset = vk::Offset2D{0, 0};
   renderPassInfo.renderArea.extent = m_swapChainExtent;
 
-  vk::ArrayWrapper1D<float, 4> array{{0.0f, 1.0f, 0.0f, 1.0f}};
+  vk::ArrayWrapper1D<float, 4> array{{0.0f, 0.0f, 1.0f, 1.0f}};
 
   vk::ClearValue clearColor{.color = {std::move(array)}};
   renderPassInfo.setClearValues(clearColor);
@@ -573,9 +587,9 @@ void VulkanRender::recordCommandBuffer(const raii::CommandBuffer &commandBuffer,
   commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                              *m_graphicsPipeline);
 
-  // vk::Buffer vertexBuffers[] = {*m_vertexBuffer};
-  // vk::DeviceSize offsets[] = {0};
-  // commandBuffer.bindVertexBuffers(0, vertexBuffers, offsets);
+  auto vertexBuffers = std::to_array<vk::Buffer>({m_mesh.vertexBuffer.get()});
+  auto offsets = std::to_array<vk::DeviceSize>({0});
+  commandBuffer.bindVertexBuffers(0, vertexBuffers, offsets);
 
   // commandBuffer.bindIndexBuffer(*m_indexBuffer, 0, vk::IndexType::eUint16);
 
@@ -583,11 +597,31 @@ void VulkanRender::recordCommandBuffer(const raii::CommandBuffer &commandBuffer,
   //                                   *m_pipelineLayout, 0,
   //                                   *m_descriptorSets[m_currentFrame], {});
 
-  // commandBuffer.drawIndexed(static_cast<uint32_t>(m_indices.size()), 1, 0, 0,
-  //                           0);
+  // commandBuffer.drawIndexed(m_mesh.vertices.size(), 1, 0, 0, 0);
 
   // commandBuffer.drawIndexed(3, 1, 0, 0, 0);
-  commandBuffer.draw(3, 1, 0, 0);
+  // glm::vec3 camPos = {0.f, 0.f, -2.f};
+  // glm::mat4 view = glm::translate(glm::mat4(1.f), camPos);
+  // // camera projection
+  // glm::mat4 projection =
+  //     glm::perspective(glm::radians(70.f), 1700.f / 900.f, 0.1f, 200.0f);
+  // projection[1][1] *= -1;
+  // // model rotation
+  // glm::mat4 model = glm::rotate(
+  //     glm::mat4{1.0f}, glm::radians(6 * 0.4f), glm::vec3(0, 1, 0));
+
+  // // calculate final mesh matrix
+  // glm::mat4 meshMatrix = projection * view * model;
+
+
+  glm::mat4 big2=glm::scale(glm::mat4(1.f), glm::vec3(0.5f,0.5f,0.5f));
+   App::MeshPushConstants constants={};
+  constants.renderMatrix = big2;
+
+   commandBuffer.pushConstants<App::MeshPushConstants>(
+       *m_pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, constants);
+
+  commandBuffer.draw(m_mesh.vertices.size(), 1, 0, 0);
 
   commandBuffer.endRenderPass();
 
@@ -707,31 +741,21 @@ void VulkanRender::cleanup() {
   // m_debugMessenger.clear();
 }
 
-void VulkanRender::createVertexBuffer() {
-  auto size =
-      static_cast<vk::DeviceSize>(sizeof(m_vertices[0]) * m_vertices.size());
+void VulkanRender::loadMeshs() {
+  m_mesh.vertices.resize(3);
+  // vertex positions
+  m_mesh.vertices[0].position = {1.f, 1.f, 0.0f};
+  m_mesh.vertices[1].position = {-1.f, 1.f, 0.0f};
+  m_mesh.vertices[2].position = {0.f, -1.f, 0.0f};
 
-  raii::Buffer stagingBuffer{nullptr};
-  raii::DeviceMemory stagingBufferMemory{nullptr};
+  // vertex colors, all green
+  m_mesh.vertices[0].color = {0.f, 1.f, 0.0f}; // pure green
+  m_mesh.vertices[1].color = {0.f, 1.f, 0.0f}; // pure green
+  m_mesh.vertices[2].color = {0.f, 1.f, 0.0f}; // pure green
 
-  createBuffer(size, vk::BufferUsageFlagBits::eTransferSrc,
-               vk::MemoryPropertyFlagBits::eHostVisible |
-                   vk::MemoryPropertyFlagBits::eHostCoherent,
-               stagingBuffer, stagingBufferMemory);
-
-  //填充buffer数据
-  auto *data = (*m_device).mapMemory(*stagingBufferMemory, 0, size);
-  std::memcpy(data, m_vertices.data(), static_cast<size_t>(size));
-  (*m_device).unmapMemory(*stagingBufferMemory);
-
-  createBuffer(size,
-               vk::BufferUsageFlagBits::eTransferDst |
-                   vk::BufferUsageFlagBits::eVertexBuffer,
-               vk::MemoryPropertyFlagBits::eDeviceLocal, m_vertexBuffer,
-               m_vertexBufferMemory);
-
-  copyBuffer(*stagingBuffer, *m_vertexBuffer, size);
+  m_vulkanMemory->uploadMesh(m_mesh);
 }
+
 
 uint32_t
 VulkanRender::findMemoryType(uint32_t typeFilter,
@@ -789,31 +813,6 @@ void VulkanRender::copyBuffer(vk::Buffer srcBuffer, vk::Buffer dstBuffer,
   (*commandBufferPointer).copyBuffer(srcBuffer, dstBuffer, copyRegion);
 }
 
-void VulkanRender::createIndexBuffer() {
-  auto size =
-      static_cast<vk::DeviceSize>(sizeof(m_indices[0]) * m_indices.size());
-
-  raii::Buffer stagingBuffer{nullptr};
-  raii::DeviceMemory stagingBufferMemory{nullptr};
-
-  createBuffer(size, vk::BufferUsageFlagBits::eTransferSrc,
-               vk::MemoryPropertyFlagBits::eHostVisible |
-                   vk::MemoryPropertyFlagBits::eHostCoherent,
-               stagingBuffer, stagingBufferMemory);
-
-  //填充buffer数据
-  auto *data = (*m_device).mapMemory(*stagingBufferMemory, 0, size);
-  std::memcpy(data, m_indices.data(), static_cast<size_t>(size));
-  (*m_device).unmapMemory(*stagingBufferMemory);
-
-  createBuffer(size,
-               vk::BufferUsageFlagBits::eTransferDst |
-                   vk::BufferUsageFlagBits::eIndexBuffer,
-               vk::MemoryPropertyFlagBits::eDeviceLocal, m_indexBuffer,
-               m_indexBufferMemory);
-
-  copyBuffer(*stagingBuffer, *m_indexBuffer, size);
-}
 
 void VulkanRender::createDescriptorSetLayout() {
   vk::DescriptorSetLayoutBinding uboLayoutBinding{};
@@ -842,24 +841,6 @@ void VulkanRender::createDescriptorSetLayout() {
   m_descriptorSetLayout = m_device.createDescriptorSetLayout(layoutInfo);
 }
 
-void VulkanRender::createUniformBuffers() {
-  vk::DeviceSize bufferSize = sizeof(UniformBufferObject);
-  m_uniformBuffers.clear();
-  m_uniformBuffersMemory.clear();
-  m_uniformBuffers.reserve(MAX_FRAMES_IN_FLIGHT);
-  m_uniformBuffersMemory.reserve(MAX_FRAMES_IN_FLIGHT);
-
-  for (std::size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-    raii::Buffer buffer{nullptr};
-    raii::DeviceMemory deviceMemory{nullptr};
-    createBuffer(bufferSize, vk::BufferUsageFlagBits::eUniformBuffer,
-                 vk::MemoryPropertyFlagBits::eHostVisible |
-                     vk::MemoryPropertyFlagBits::eHostCoherent,
-                 buffer, deviceMemory);
-    m_uniformBuffers.push_back(std::move(buffer));
-    m_uniformBuffersMemory.push_back(std::move(deviceMemory));
-  }
-}
 
 void VulkanRender::updateUniformBuffer(uint32_t currentImage) {
   static auto startTime = chrono::high_resolution_clock::now();
@@ -1196,13 +1177,12 @@ VulkanInitializer::getPipelineShaderStageCreateInfo(
   return shaderStageInfo;
 }
 vk::PipelineVertexInputStateCreateInfo
-VulkanInitializer::getPipelineVertexInputStateCreateInfo() {
+VulkanInitializer::getPipelineVertexInputStateCreateInfo(
+    App::VertexInputDescription const &des) {
 
   vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
-  auto bindingDescription = Vertex::getBindingDescription();
-  auto attributeDescription = Vertex::getAttributeDescriptions();
-  // vertexInputInfo.setVertexBindingDescriptions(bindingDescription);
-  // vertexInputInfo.setVertexAttributeDescriptions(attributeDescription);
+  vertexInputInfo.setVertexBindingDescriptions(des.bindings);
+  vertexInputInfo.setVertexAttributeDescriptions(des.attributes);
   return vertexInputInfo;
 }
 vk::PipelineInputAssemblyStateCreateInfo
@@ -1253,6 +1233,10 @@ VulkanInitializer::getPipelineColorBlendAttachmentState() {
   colorBlendAttachment.dstAlphaBlendFactor = vk::BlendFactor::eOne; // Optional
   colorBlendAttachment.alphaBlendOp = vk::BlendOp::eAdd;            // Optional
   return colorBlendAttachment;
+}
+vk::PipelineLayoutCreateInfo VulkanInitializer::getPipelineLayoutCreateInfo() {
+  vk::PipelineLayoutCreateInfo info{};
+  return info;
 }
 
 raii::Pipeline PipelineFactory::buildPipeline(const raii::Device &device,

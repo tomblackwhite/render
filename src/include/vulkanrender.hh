@@ -1,4 +1,5 @@
 #pragma once
+#include "asset.hh"
 #include <cstddef>
 #include <cstdint>
 #include <fmt/format.h>
@@ -48,7 +49,6 @@ struct UniformBufferObject {
   glm::mat4 view;
   glm::mat4 proj;
 };
-
 
 // deleter
 struct CommandBufferDeleter {
@@ -123,11 +123,12 @@ private:
 
   void createCommandPool();
 
-  void createVertexBuffer();
+  void loadMeshs();
+  // void createVertexBuffer();
 
-  void createIndexBuffer();
+//  void createIndexBuffer();
 
-  void createUniformBuffers();
+ // void createUniformBuffers();
 
   void createTextureImage();
 
@@ -255,12 +256,16 @@ private:
   raii::SurfaceKHR m_surface{nullptr};
   raii::PhysicalDevice m_physicalDevice{nullptr};
   raii::Device m_device{nullptr};
+  std::unique_ptr<App::VulkanMemory> m_vulkanMemory{nullptr};
+
   raii::Queue m_graphicsQueue{nullptr};
   raii::Queue m_presentQueue{nullptr};
   raii::SwapchainKHR m_swapChain{nullptr};
 
-  raii::Buffer m_vertexBuffer{nullptr};
-  raii::DeviceMemory m_vertexBufferMemory{nullptr};
+
+  App::Mesh m_mesh;
+  // raii::Buffer m_vertexBuffer{nullptr};
+  // raii::DeviceMemory m_vertexBufferMemory{nullptr};
   raii::Buffer m_indexBuffer{nullptr};
   raii::DeviceMemory m_indexBufferMemory{nullptr};
 
@@ -292,12 +297,6 @@ private:
   std::vector<raii::Semaphore> m_renderFinishedSemaphores;
   std::vector<raii::Fence> m_inFlightFences;
 
-  const std::vector<Vertex> m_vertices = {
-      {{-1.0f, -1.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-      {{1.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-      {{1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-      {{-1.0f, 1.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}};
-
   const std::vector<uint16_t> m_indices = {0, 1, 2, 2, 3, 0};
   uint32_t m_currentFrame = 0;
 
@@ -328,7 +327,7 @@ struct VulkanInitializer {
   getPipelineShaderStageCreateInfo(vk::ShaderStageFlagBits stage,
                                    vk::ShaderModule shaderModule);
   static vk::PipelineVertexInputStateCreateInfo
-  getPipelineVertexInputStateCreateInfo();
+  getPipelineVertexInputStateCreateInfo(App::VertexInputDescription const&);
   static vk::PipelineInputAssemblyStateCreateInfo
   getPipelineInputAssemblyStateCreateInfo();
   static vk::PipelineRasterizationStateCreateInfo
@@ -337,6 +336,7 @@ struct VulkanInitializer {
   getPipelineMultisampleStateCreateInfo();
   static vk::PipelineColorBlendAttachmentState
   getPipelineColorBlendAttachmentState();
+  static vk::PipelineLayoutCreateInfo getPipelineLayoutCreateInfo();
 };
 
 // build pipeLine Factory

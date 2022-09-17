@@ -25,4 +25,10 @@ void ThrowException(string const & message, bool hasSDL=false);
 void CheckAudioDriver();
 
 
+#define VULKAN_CHECK(expr,message)\
+  do {                                          \
+      if (VkResult result = expr;result != VK_SUCCESS) {   \
+        App::ThrowException(fmt::format("message{}", result));}             \
+} while (false)
+
 } // namespace App

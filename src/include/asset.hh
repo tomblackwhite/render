@@ -60,7 +60,7 @@ struct Vertex {
   glm::vec3 normal;
   glm::vec3 color;
 
-  static VertexInputDescription getBindingDescription() {
+  static VertexInputDescription getVertexDescription() {
     VertexInputDescription description;
     vk::VertexInputBindingDescription bindingDescription{
         .binding = 0,
@@ -72,17 +72,17 @@ struct Vertex {
 
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
-    attributeDescriptions[0].format = ::vk::Format::eR32G32B32Sfloat;
+    attributeDescriptions[0].format = vk::Format::eR32G32B32Sfloat;
     attributeDescriptions[0].offset = offsetof(Vertex, position);
 
     attributeDescriptions[1].binding = 0;
     attributeDescriptions[1].location = 1;
-    attributeDescriptions[1].format = ::vk::Format::eR32G32B32Sfloat;
-    attributeDescriptions[1].offset = offsetof(Vertex, color);
+    attributeDescriptions[1].format = vk::Format::eR32G32B32Sfloat;
+    attributeDescriptions[1].offset = offsetof(Vertex, normal);
 
     attributeDescriptions[2].binding = 0;
     attributeDescriptions[2].location = 2;
-    attributeDescriptions[2].format = ::vk::Format::eR32G32B32Sfloat;
+    attributeDescriptions[2].format = vk::Format::eR32G32B32Sfloat;
     attributeDescriptions[2].offset = offsetof(Vertex, color);
     description.attributes.insert(
         description.attributes.end(),
@@ -91,29 +91,11 @@ struct Vertex {
 
     return description;
   }
+};
 
-  // static std::array<vk::VertexInputAttributeDescription, 3>
-  // getAttributeDescriptions() {
-  //   std::array<vk::VertexInputAttributeDescription, 3>
-  //   attributeDescriptions{};
-
-  //   attributeDescriptions[0].binding = 0;
-  //   attributeDescriptions[0].location = 0;
-  //   attributeDescriptions[0].format = ::vk::Format::eR32G32Sfloat;
-  //   attributeDescriptions[0].offset = offsetof(Vertex, pos);
-
-  //   attributeDescriptions[1].binding = 0;
-  //   attributeDescriptions[1].location = 1;
-  //   attributeDescriptions[1].format = ::vk::Format::eR32G32B32Sfloat;
-  //   attributeDescriptions[1].offset = offsetof(Vertex, color);
-
-  //   attributeDescriptions[2].binding = 0;
-  //   attributeDescriptions[2].location = 2;
-  //   attributeDescriptions[2].format = ::vk::Format::eR32G32Sfloat;
-  //   attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
-
-  //   return attributeDescriptions;
-  // }
+struct MeshPushConstants{
+  glm::vec4 data;
+  glm::mat4 renderMatrix;
 };
 
 // Mesh
@@ -124,14 +106,17 @@ struct Mesh {
 
 class VulkanMemory {
 public: // Inteface
-  VulkanBufferHandle createBuffer(vk::BufferCreateInfo const &createInfo) {
-    VkBuffer buffer;
-    VmaAllocation allocation;
+  VulkanBufferHandle createBuffer(VkBufferCreateInfo &createInfo,
+                                  VmaAllocationCreateInfo const &allocationInfo) {
+    VkBuffer buffer={};
+    VmaAllocation allocation={};
 
-    if (VkResult re = vmaCreateBuffer(
+
+    VkResult re = vmaCreateBuffer(
             m_allocator, &static_cast<VkBufferCreateInfo const &>(createInfo),
-            &m_bufferAllocationCreateInfo, &buffer, &allocation, nullptr);
-        re != VK_SUCCESS) {
+            &allocationInfo, &buffer, &allocation, nullptr);
+
+    if(re != VK_SUCCESS) {
       App::ThrowException(fmt::format("create Buffer Error {}", re));
     }
 
@@ -141,15 +126,26 @@ public: // Inteface
 
   // uploadMesh
   void uploadMesh(Mesh &mesh) {
-    auto deleter = mesh.vertexBuffer.get_deleter();
-    upload(deleter.m_allocation, std::span(mesh.vertices));
+    upload(mesh.vertexBuffer, std::span(mesh.vertices));
   }
 
   // upload to gpu memory
   template <typename T>
-  void upload(VmaAllocation alloction, std::span<T> buffer) {
+  void upload(VulkanBufferHandle &handle, std::span<T> buffer) {
+
+    vk::BufferCreateInfo bufferInfo={};
+    bufferInfo.setSize(buffer.size_bytes());
+    bufferInfo.setUsage(vk::BufferUsageFlagBits::eVertexBuffer);
+    VmaAllocationCreateInfo allocationInfo={};
+    allocationInfo.usage=VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    allocationInfo.flags=VmaAllocationCreateFlagBits::VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+
+    handle=createBuffer(static_cast<VkBufferCreateInfo&>(bufferInfo),allocationInfo);
+
+    auto deleter = handle.get_deleter();
+    auto *alloction = deleter.m_allocation;
     void *data = nullptr;
-    vmaMapMemory(m_allocator, alloction, &data);
+    VULKAN_CHECK(vmaMapMemory(m_allocator, alloction, &data),"map error");
 
     std::memcpy(data, buffer.data(), buffer.size_bytes());
     vmaUnmapMemory(m_allocator, alloction);
@@ -171,8 +167,6 @@ public: // Inteface
 
 private:
   VmaAllocator m_allocator = {};
-  VmaAllocationCreateInfo m_bufferAllocationCreateInfo = {
-      .usage = VMA_MEMORY_USAGE_AUTO};
 };
 
 } // namespace App
