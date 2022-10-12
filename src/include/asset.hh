@@ -3,17 +3,17 @@
 #include <cstddef>
 #include <cstring>
 #include <fmt/format.h>
+#include <glm/glm.hpp>
 #include <memory>
 #include <span>
 #include <string>
-#define VULKAN_HPP_NO_CONSTRUCTORS
-#include <glm/glm.hpp>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 
 #include <vk_mem_alloc.h>
 
 #include <stb/stb_image.h>
+#include <tiny_obj_loader.h>
 
 using std::string;
 
@@ -93,7 +93,7 @@ struct Vertex {
   }
 };
 
-struct MeshPushConstants{
+struct MeshPushConstants {
   glm::vec4 data;
   glm::mat4 renderMatrix;
 };
@@ -102,21 +102,96 @@ struct MeshPushConstants{
 struct Mesh {
   std::vector<Vertex> vertices;
   VulkanBufferHandle vertexBuffer;
+
+  bool loadFromOBJ(std::string const &path) {
+
+    tinyobj::attrib_t attrib;
+
+    std::vector<tinyobj::shape_t> shapes;
+
+    std::vector<tinyobj::material_t> materials;
+
+    std::string warn;
+    std::string err;
+
+    bool re =
+        tinyobj::LoadObj(&attrib, &shapes, &materials, &err, path.c_str());
+
+    if (!err.empty()) {
+      std::cerr << "loadObject error" << err << '\n';
+      return false;
+    }
+
+    for (auto &shape : shapes) {
+
+      // Loop over faces(polygon)
+      size_t index_offset = 0;
+      for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); f++) {
+        size_t fv = size_t(shape.mesh.num_face_vertices[f]);
+
+        // Loop over vertices in the face.
+        for (size_t v = 0; v < fv; v++) {
+          // access to vertex
+          tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
+
+          Vertex vertex{};
+          tinyobj::real_t vx =
+              attrib.vertices[3 * size_t(idx.vertex_index) + 0];
+          tinyobj::real_t vy =
+              attrib.vertices[3 * size_t(idx.vertex_index) + 1];
+          tinyobj::real_t vz =
+              attrib.vertices[3 * size_t(idx.vertex_index) + 2];
+
+          vertex.position = glm::vec3(vx, vy, vz);
+          // Check if `normal_index` is zero or positive. negative = no normal
+          // data
+          if (idx.normal_index >= 0) {
+            tinyobj::real_t nx =
+                attrib.normals[3 * size_t(idx.normal_index) + 0];
+            tinyobj::real_t ny =
+                attrib.normals[3 * size_t(idx.normal_index) + 1];
+            tinyobj::real_t nz =
+                attrib.normals[3 * size_t(idx.normal_index) + 2];
+            vertex.normal = glm::vec3(nx, ny, nz);
+          }
+
+          // Check if `texcoord_index` is zero or positive. negative = no
+          // texcoord data
+          if (idx.texcoord_index >= 0) {
+            tinyobj::real_t tx =
+                attrib.texcoords[2 * size_t(idx.texcoord_index) + 0];
+            tinyobj::real_t ty =
+                attrib.texcoords[2 * size_t(idx.texcoord_index) + 1];
+          }
+
+          vertex.color = vertex.normal;
+
+          // Optional: vertex colors
+          // tinyobj::real_t red   =
+          // attrib.colors[3*size_t(idx.vertex_index)+0]; tinyobj::real_t green
+          // = attrib.colors[3*size_t(idx.vertex_index)+1]; tinyobj::real_t blue
+          // = attrib.colors[3*size_t(idx.vertex_index)+2];
+          vertices.push_back(vertex);
+        }
+        index_offset += fv;
+      }
+    }
+  }
 };
 
 class VulkanMemory {
 public: // Inteface
-  VulkanBufferHandle createBuffer(VkBufferCreateInfo &createInfo,
-                                  VmaAllocationCreateInfo const &allocationInfo) {
-    VkBuffer buffer={};
-    VmaAllocation allocation={};
-
+  VulkanBufferHandle
+  createBuffer(VkBufferCreateInfo &createInfo,
+               VmaAllocationCreateInfo const &allocationInfo) {
+    VkBuffer buffer = {};
+    VmaAllocation allocation = {};
 
     VkResult re = vmaCreateBuffer(
-            m_allocator, &static_cast<VkBufferCreateInfo const &>(createInfo),
-            &allocationInfo, &buffer, &allocation, nullptr);
+        m_allocator, &static_cast<VkBufferCreateInfo const &>(createInfo),
+        &allocationInfo, &buffer, &allocation, nullptr);
 
-    if(re != VK_SUCCESS) {
+    if (re != VK_SUCCESS) {
       App::ThrowException(fmt::format("create Buffer Error {}", re));
     }
 
@@ -133,19 +208,21 @@ public: // Inteface
   template <typename T>
   void upload(VulkanBufferHandle &handle, std::span<T> buffer) {
 
-    vk::BufferCreateInfo bufferInfo={};
+    vk::BufferCreateInfo bufferInfo = {};
     bufferInfo.setSize(buffer.size_bytes());
     bufferInfo.setUsage(vk::BufferUsageFlagBits::eVertexBuffer);
-    VmaAllocationCreateInfo allocationInfo={};
-    allocationInfo.usage=VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-    allocationInfo.flags=VmaAllocationCreateFlagBits::VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+    VmaAllocationCreateInfo allocationInfo = {};
+    allocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    allocationInfo.flags = VmaAllocationCreateFlagBits::
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 
-    handle=createBuffer(static_cast<VkBufferCreateInfo&>(bufferInfo),allocationInfo);
+    handle = createBuffer(static_cast<VkBufferCreateInfo &>(bufferInfo),
+                          allocationInfo);
 
     auto deleter = handle.get_deleter();
     auto *alloction = deleter.m_allocation;
     void *data = nullptr;
-    VULKAN_CHECK(vmaMapMemory(m_allocator, alloction, &data),"map error");
+    VULKAN_CHECK(vmaMapMemory(m_allocator, alloction, &data), "map error");
 
     std::memcpy(data, buffer.data(), buffer.size_bytes());
     vmaUnmapMemory(m_allocator, alloction);

@@ -1,6 +1,5 @@
 #include <application.hh>
 #include <iostream>
-
 int main() {
 
   try {

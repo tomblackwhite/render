@@ -9,8 +9,6 @@
 #include <stb/stb_image.h>
 #include <tool.hh>
 
-#define VULKAN_HPP_NO_CONSTRUCTORS
-#define GLM_FORCE_RADIANS
 #include <chrono>
 #include <fstream>
 #include <glm/glm.hpp>
@@ -78,7 +76,7 @@ class VulkanRender {
 public:
   explicit VulkanRender(std::string &&path, uint32_t renderWidth,
                         uint32_t renderHeight)
-      : m_shaderDirPath(path), m_renderWidth(renderWidth),
+      : m_programRootPath(path), m_renderWidth(renderWidth),
         m_renderHeight(renderHeight) {}
 
   void initVulkanInstance(std::vector<std::string> &&extensions) {
@@ -108,10 +106,8 @@ private:
 
   void initCommands();
 
-  // call by main drawFrame
-  uint32_t drawFrameAsync(uint32_t currentImage, uint32_t currentSyncIndex);
 
-  void updateUniformBuffer(uint32_t currentImage);
+  // void updateUniformBuffer(uint32_t currentImage);
 
   void createInstance();
   void createSyncObjects();
@@ -126,11 +122,11 @@ private:
   void loadMeshs();
   // void createVertexBuffer();
 
-//  void createIndexBuffer();
+  //  void createIndexBuffer();
 
- // void createUniformBuffers();
+  // void createUniformBuffers();
 
-  void createTextureImage();
+  // void createTextureImage();
 
   void createTextureSampler();
 
@@ -144,27 +140,27 @@ private:
   void copyBufferToImage(vk::Buffer buffer, vk::Image image, uint32_t width,
                          uint32_t height);
 
-  void createTextureImageView();
+  // void createTextureImageView();
 
   raii::ImageView createImageView(vk::Image, vk::Format format);
 
-  void createDescriptorPool();
+  // void createDescriptorPool();
 
-  void createDescriptorSets();
+  // void createDescriptorSets();
 
-  void createDescriptorSetLayout();
+  // void createDescriptorSetLayout();
 
   void createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
                     vk::MemoryPropertyFlags properties, raii::Buffer &buffer,
                     raii::DeviceMemory &bufferMemory);
 
-  void createImage(uint32_t width, uint32_t height, vk::Format format,
-                   vk::ImageTiling tiling, vk::ImageUsageFlags usage,
-                   vk::MemoryPropertyFlagBits properties, raii::Image &image,
-                   raii::DeviceMemory &imageMemory);
+  // void createImage(uint32_t width, uint32_t height, vk::Format format,
+  //                  vk::ImageTiling tiling, vk::ImageUsageFlags usage,
+  //                  vk::MemoryPropertyFlagBits properties, raii::Image &image,
+  //                  raii::DeviceMemory &imageMemory);
 
-  void copyBuffer(vk::Buffer srcBuffer, vk::Buffer dstBuffer,
-                  vk::DeviceSize size);
+  // void copyBuffer(vk::Buffer srcBuffer, vk::Buffer dstBuffer,
+  //                 vk::DeviceSize size);
 
   void createFramebuffers();
 
@@ -262,20 +258,8 @@ private:
   raii::Queue m_presentQueue{nullptr};
   raii::SwapchainKHR m_swapChain{nullptr};
 
-
   App::Mesh m_mesh;
-  // raii::Buffer m_vertexBuffer{nullptr};
-  // raii::DeviceMemory m_vertexBufferMemory{nullptr};
-  raii::Buffer m_indexBuffer{nullptr};
-  raii::DeviceMemory m_indexBufferMemory{nullptr};
 
-  std::vector<raii::Buffer> m_uniformBuffers;
-  std::vector<raii::DeviceMemory> m_uniformBuffersMemory;
-
-  raii::Image m_textureImage{nullptr};
-  raii::DeviceMemory m_textureImageMemory{nullptr};
-  raii::ImageView m_textureImageView{nullptr};
-  raii::Sampler m_textureSampler{nullptr};
 
   std::vector<vk::Image> m_swapChainImages;
   vk::Format m_swapChainImageFormat;
@@ -283,10 +267,6 @@ private:
   std::vector<raii::ImageView> m_swapChainImageViews;
   raii::PipelineLayout m_pipelineLayout{nullptr};
   raii::RenderPass m_renderPass{nullptr};
-
-  raii::DescriptorSetLayout m_descriptorSetLayout{nullptr};
-  raii::DescriptorPool m_descriptorPool{nullptr};
-  raii::DescriptorSets m_descriptorSets{nullptr};
 
   raii::Pipeline m_graphicsPipeline{nullptr};
   std::vector<raii::Framebuffer> m_swapChainFramebuffers;
@@ -299,6 +279,7 @@ private:
 
   const std::vector<uint16_t> m_indices = {0, 1, 2, 2, 3, 0};
   uint32_t m_currentFrame = 0;
+  uint32_t m_frameCount = 0;
 
   std::vector<std::string> m_instanceExtensions;
 
@@ -309,7 +290,7 @@ private:
   uint32_t m_renderHeight;
 
   // shader path
-  const std::string m_shaderDirPath;
+  const std::string m_programRootPath;
 
   // render settings
 #ifdef NDEBUG
@@ -327,7 +308,7 @@ struct VulkanInitializer {
   getPipelineShaderStageCreateInfo(vk::ShaderStageFlagBits stage,
                                    vk::ShaderModule shaderModule);
   static vk::PipelineVertexInputStateCreateInfo
-  getPipelineVertexInputStateCreateInfo(App::VertexInputDescription const&);
+  getPipelineVertexInputStateCreateInfo(App::VertexInputDescription const &);
   static vk::PipelineInputAssemblyStateCreateInfo
   getPipelineInputAssemblyStateCreateInfo();
   static vk::PipelineRasterizationStateCreateInfo

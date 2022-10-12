@@ -1,4 +1,3 @@
-#include <cstddef>
 #include <vulkanrender.hh>
 
 using std::runtime_error;
@@ -285,10 +284,10 @@ void VulkanRender::createRenderPass() {
 }
 
 void VulkanRender::createGraphicsPipeline() {
-  std::string homePath = m_shaderDirPath;
+  std::string homePath = m_programRootPath;
 
-  auto vertShaderCode = readFile(homePath + "/vert.spv");
-  auto fragShaderCode = readFile(homePath + "/frag.spv");
+  auto vertShaderCode = readFile(homePath + "/../shader/vert.spv");
+  auto fragShaderCode = readFile(homePath + "/../shader/frag.spv");
   auto vertShaderModule = createShaderModule(vertShaderCode);
   auto fragShaderModule = createShaderModule(fragShaderCode);
 
@@ -311,13 +310,17 @@ void VulkanRender::createGraphicsPipeline() {
   pipelineFactory.m_inputAssembly =
       VulkanInitializer::getPipelineInputAssemblyStateCreateInfo();
 
+
+  //let view port height negative , let ndc to left hand ,y is up
   pipelineFactory.m_viewPort =
-      vk::Viewport{.y = 0.0F,
+      vk::Viewport{.x = 0.0F,
+                   .y = 0.0F + (float)m_swapChainExtent.height,
                    .width = (float)m_swapChainExtent.width,
-                   .height = (float)m_swapChainExtent.height,
+                   .height = -((float)m_swapChainExtent.height),
                    .minDepth = 0.0F,
                    .maxDepth = 1.0F};
-  pipelineFactory.m_scissor = {.offset = {0, 0}, .extent = m_swapChainExtent};
+  pipelineFactory.m_scissor =
+      vk::Rect2D{.offset = {0, 0}, .extent = m_swapChainExtent};
 
   pipelineFactory.m_rasterizer =
       VulkanInitializer::getPipelineRasterizationStateCreateInfo();
@@ -495,6 +498,7 @@ void VulkanRender::drawFrame() {
   }
 
   m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+  m_frameCount++;
 
   //  auto endTime = chrono::high_resolution_clock().now();
 
@@ -577,7 +581,7 @@ void VulkanRender::recordCommandBuffer(const raii::CommandBuffer &commandBuffer,
   renderPassInfo.renderArea.offset = vk::Offset2D{0, 0};
   renderPassInfo.renderArea.extent = m_swapChainExtent;
 
-  vk::ArrayWrapper1D<float, 4> array{{0.0f, 0.0f, 1.0f, 1.0f}};
+  vk::ArrayWrapper1D<float, 4> array{{0.0f, 0.0f, 0.0f, 0.0f}};
 
   vk::ClearValue clearColor{.color = {std::move(array)}};
   renderPassInfo.setClearValues(clearColor);
@@ -600,26 +604,24 @@ void VulkanRender::recordCommandBuffer(const raii::CommandBuffer &commandBuffer,
   // commandBuffer.drawIndexed(m_mesh.vertices.size(), 1, 0, 0, 0);
 
   // commandBuffer.drawIndexed(3, 1, 0, 0, 0);
-  // glm::vec3 camPos = {0.f, 0.f, -2.f};
-  // glm::mat4 view = glm::translate(glm::mat4(1.f), camPos);
-  // // camera projection
-  // glm::mat4 projection =
-  //     glm::perspective(glm::radians(70.f), 1700.f / 900.f, 0.1f, 200.0f);
-  // projection[1][1] *= -1;
+  glm::vec3 camPos = {0.f, 0.f, -2.0f};
+  auto lookAtView =
+      glm::lookAt(camPos, glm::vec3{0.f, 0.f, 0.f}, glm::vec3{0, -1, 0});
+
+ // // camera projection
+  glm::mat4 projection =
+      glm::perspective(glm::radians(90.f), 1600.f / 900.f, 1.5f, 200.0f);
   // // model rotation
-  // glm::mat4 model = glm::rotate(
-  //     glm::mat4{1.0f}, glm::radians(6 * 0.4f), glm::vec3(0, 1, 0));
+  glm::mat4 model = glm::rotate(
+      glm::mat4{1.0f}, glm::radians(m_frameCount * 0.2f), glm::vec3(0, 1, 0));
 
-  // // calculate final mesh matrix
-  // glm::mat4 meshMatrix = projection * view * model;
+  auto big2 = projection * lookAtView  ;
+  App::MeshPushConstants constants = {};
 
-
-  glm::mat4 big2=glm::scale(glm::mat4(1.f), glm::vec3(0.5f,0.5f,0.5f));
-   App::MeshPushConstants constants={};
   constants.renderMatrix = big2;
 
-   commandBuffer.pushConstants<App::MeshPushConstants>(
-       *m_pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, constants);
+  commandBuffer.pushConstants<App::MeshPushConstants>(
+      *m_pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, constants);
 
   commandBuffer.draw(m_mesh.vertices.size(), 1, 0, 0);
 
@@ -677,10 +679,10 @@ vk::PresentModeKHR VulkanRender::chooseSwapPresentMode(
     const std::vector<vk::PresentModeKHR> &availablePresentModes) {
   for (const auto &availablePresentMode : availablePresentModes) {
     if (availablePresentMode == vk::PresentModeKHR::eMailbox) {
-      return vk::PresentModeKHR::eImmediate;
+      return vk::PresentModeKHR::eMailbox;
     }
   }
-  return vk::PresentModeKHR::eImmediate;
+  return vk::PresentModeKHR::eFifo;
 }
 
 vk::Extent2D
@@ -688,8 +690,6 @@ VulkanRender::chooseSwapExtent(const vk::SurfaceCapabilitiesKHR &capabilities) {
   if (capabilities.currentExtent.width !=
       std::numeric_limits<uint32_t>::max()) {
 
-    // spdlog::info("window daxiao{} {}", capabilities.currentExtent.width,
-    //              capabilities.currentExtent.height);
     return capabilities.currentExtent;
   } else {
     int width, height;
@@ -742,20 +742,24 @@ void VulkanRender::cleanup() {
 }
 
 void VulkanRender::loadMeshs() {
-  m_mesh.vertices.resize(3);
+  m_mesh.vertices.resize(6);
   // vertex positions
   m_mesh.vertices[0].position = {1.f, 1.f, 0.0f};
   m_mesh.vertices[1].position = {-1.f, 1.f, 0.0f};
-  m_mesh.vertices[2].position = {0.f, -1.f, 0.0f};
-
+  m_mesh.vertices[2].position = {1.f, -1.f, 0.0f};
+  m_mesh.vertices[3].position = {-1.f, -1.f, 0.0f};
+  m_mesh.vertices[4].position = {-1.f, 1.f, 0.0f};
+  m_mesh.vertices[5].position = {1.f, -1.f, 0.0f};
   // vertex colors, all green
-  m_mesh.vertices[0].color = {0.f, 1.f, 0.0f}; // pure green
+  m_mesh.vertices[0].color = {1.f, 0.f, 0.0f}; // pure green
   m_mesh.vertices[1].color = {0.f, 1.f, 0.0f}; // pure green
-  m_mesh.vertices[2].color = {0.f, 1.f, 0.0f}; // pure green
+  m_mesh.vertices[2].color = {0.f, 0.f, 1.0f}; // pure green
+  m_mesh.vertices[3].color = {0.f, 1.f, 1.0f}; // pure green
+  m_mesh.vertices[4].color = {0.f, 1.f, 0.0f}; // pure green
+  m_mesh.vertices[5].color = {0.f, 0.f, 1.0f}; // pure green
 
   m_vulkanMemory->uploadMesh(m_mesh);
 }
-
 
 uint32_t
 VulkanRender::findMemoryType(uint32_t typeFilter,
@@ -804,231 +808,229 @@ void VulkanRender::createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
   m_device.bindBufferMemory2(bindInfo);
 }
 
-void VulkanRender::copyBuffer(vk::Buffer srcBuffer, vk::Buffer dstBuffer,
-                              vk::DeviceSize size) {
+// void VulkanRender::copyBuffer(vk::Buffer srcBuffer, vk::Buffer dstBuffer,
+//                               vk::DeviceSize size) {
 
-  auto commandBufferPointer = beginSingleTimeCommands();
-  vk::BufferCopy copyRegion{};
-  copyRegion.size = size;
-  (*commandBufferPointer).copyBuffer(srcBuffer, dstBuffer, copyRegion);
-}
+//   auto commandBufferPointer = beginSingleTimeCommands();
+//   vk::BufferCopy copyRegion{};
+//   copyRegion.size = size;
+//   (*commandBufferPointer).copyBuffer(srcBuffer, dstBuffer, copyRegion);
+// }
 
+// void VulkanRender::createDescriptorSetLayout() {
+//   vk::DescriptorSetLayoutBinding uboLayoutBinding{};
+//   uboLayoutBinding.setBinding(0);
+//   uboLayoutBinding.setDescriptorCount(1);
+//   uboLayoutBinding.setDescriptorType(vk::DescriptorType::eUniformBuffer);
+//   uboLayoutBinding.setStageFlags(vk::ShaderStageFlagBits::eVertex);
 
-void VulkanRender::createDescriptorSetLayout() {
-  vk::DescriptorSetLayoutBinding uboLayoutBinding{};
-  uboLayoutBinding.setBinding(0);
-  uboLayoutBinding.setDescriptorCount(1);
-  uboLayoutBinding.setDescriptorType(vk::DescriptorType::eUniformBuffer);
-  uboLayoutBinding.setStageFlags(vk::ShaderStageFlagBits::eVertex);
+//   vk::DescriptorSetLayoutBinding samplerLayoutBinding{};
 
-  vk::DescriptorSetLayoutBinding samplerLayoutBinding{};
+//   samplerLayoutBinding.binding = 1;
+//   samplerLayoutBinding.descriptorCount = 1;
+//   samplerLayoutBinding.descriptorType =
+//       vk::DescriptorType::eCombinedImageSampler;
+//   samplerLayoutBinding.pImmutableSamplers = nullptr;
+//   samplerLayoutBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
 
-  samplerLayoutBinding.binding = 1;
-  samplerLayoutBinding.descriptorCount = 1;
-  samplerLayoutBinding.descriptorType =
-      vk::DescriptorType::eCombinedImageSampler;
-  samplerLayoutBinding.pImmutableSamplers = nullptr;
-  samplerLayoutBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
+//   std::array<vk::DescriptorSetLayoutBinding, 2> bindings = {
+//       uboLayoutBinding, samplerLayoutBinding};
 
-  std::array<vk::DescriptorSetLayoutBinding, 2> bindings = {
-      uboLayoutBinding, samplerLayoutBinding};
+//   vk::DescriptorSetLayoutCreateInfo layoutInfo{};
 
-  vk::DescriptorSetLayoutCreateInfo layoutInfo{};
+//   layoutInfo.setBindingCount(bindings.size());
+//   layoutInfo.setBindings(bindings);
 
-  layoutInfo.setBindingCount(bindings.size());
-  layoutInfo.setBindings(bindings);
+//   m_descriptorSetLayout = m_device.createDescriptorSetLayout(layoutInfo);
+// }
 
-  m_descriptorSetLayout = m_device.createDescriptorSetLayout(layoutInfo);
-}
+// void VulkanRender::updateUniformBuffer(uint32_t currentImage) {
+//   static auto startTime = chrono::high_resolution_clock::now();
 
+//   auto currentTime = chrono::high_resolution_clock::now();
 
-void VulkanRender::updateUniformBuffer(uint32_t currentImage) {
-  static auto startTime = chrono::high_resolution_clock::now();
+//   float time =
+//       chrono::duration<float, chrono::seconds::period>(currentTime - startTime)
+//           .count();
 
-  auto currentTime = chrono::high_resolution_clock::now();
+//   UniformBufferObject ubo{};
+//   // ubo.model = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f),
+//   //                         glm::vec3(0.0f, 0.0f, 1.0f));
 
-  float time =
-      chrono::duration<float, chrono::seconds::period>(currentTime - startTime)
-          .count();
+//   ubo.model = glm::mat4(1.0F);
 
-  UniformBufferObject ubo{};
-  // ubo.model = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f),
-  //                         glm::vec3(0.0f, 0.0f, 1.0f));
+//   ubo.view =
+//       glm::lookAt(glm::vec3(2.0f, -2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f),
+//                   glm::vec3(0.0f, 0.0f, 1.0f));
 
-  ubo.model = glm::mat4(1.0F);
+//   // ubo.view=glm::mat4(1.0F);
 
-  ubo.view =
-      glm::lookAt(glm::vec3(2.0f, -2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f),
-                  glm::vec3(0.0f, 0.0f, 1.0f));
+//   ubo.proj = glm::perspective(glm::radians(45.0f),
+//                               m_swapChainExtent.width /
+//                                   static_cast<float>(m_swapChainExtent.height),
+//                               0.1f, 10.0f);
+//   // ubo.proj=glm::mat4(1.0F);
 
-  // ubo.view=glm::mat4(1.0F);
+//   // ubo.proj[1][1] *= -1;
 
-  ubo.proj = glm::perspective(glm::radians(45.0f),
-                              m_swapChainExtent.width /
-                                  static_cast<float>(m_swapChainExtent.height),
-                              0.1f, 10.0f);
-  // ubo.proj=glm::mat4(1.0F);
+//   auto *data = (*m_device).mapMemory(*m_uniformBuffersMemory[currentImage], 0,
+//                                      sizeof(ubo));
 
-  // ubo.proj[1][1] *= -1;
+//   std::memcpy(data, &ubo, sizeof(ubo));
 
-  auto *data = (*m_device).mapMemory(*m_uniformBuffersMemory[currentImage], 0,
-                                     sizeof(ubo));
+//   (*m_device).unmapMemory(*m_uniformBuffersMemory[currentImage]);
+// }
 
-  std::memcpy(data, &ubo, sizeof(ubo));
+// void VulkanRender::createDescriptorPool() {
 
-  (*m_device).unmapMemory(*m_uniformBuffersMemory[currentImage]);
-}
+//   std::array<vk::DescriptorPoolSize, 2> poolSizes{};
 
-void VulkanRender::createDescriptorPool() {
+//   poolSizes[0].setType(vk::DescriptorType::eUniformBuffer);
+//   poolSizes[0].setDescriptorCount(static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT));
+//   poolSizes[1].setType(vk::DescriptorType::eCombinedImageSampler);
+//   poolSizes[1].setDescriptorCount(static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT));
 
-  std::array<vk::DescriptorPoolSize, 2> poolSizes{};
+//   vk::DescriptorPoolCreateInfo poolInfo{};
 
-  poolSizes[0].setType(vk::DescriptorType::eUniformBuffer);
-  poolSizes[0].setDescriptorCount(static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT));
-  poolSizes[1].setType(vk::DescriptorType::eCombinedImageSampler);
-  poolSizes[1].setDescriptorCount(static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT));
+//   poolInfo.setPoolSizeCount(poolSizes.size());
+//   poolInfo.setPoolSizes(poolSizes);
+//   poolInfo.setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
+//   poolInfo.setMaxSets(static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT));
+//   m_descriptorPool = m_device.createDescriptorPool(poolInfo);
+// }
 
-  vk::DescriptorPoolCreateInfo poolInfo{};
+// void VulkanRender::createDescriptorSets() {
+//   std::vector<vk::DescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT,
+//                                                *m_descriptorSetLayout);
 
-  poolInfo.setPoolSizeCount(poolSizes.size());
-  poolInfo.setPoolSizes(poolSizes);
-  poolInfo.setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
-  poolInfo.setMaxSets(static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT));
-  m_descriptorPool = m_device.createDescriptorPool(poolInfo);
-}
+//   vk::DescriptorSetAllocateInfo allocInfo{};
+//   allocInfo.descriptorPool = *m_descriptorPool;
+//   allocInfo.setSetLayouts(layouts);
 
-void VulkanRender::createDescriptorSets() {
-  std::vector<vk::DescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT,
-                                               *m_descriptorSetLayout);
+//   m_descriptorSets = raii::DescriptorSets(m_device, allocInfo);
 
-  vk::DescriptorSetAllocateInfo allocInfo{};
-  allocInfo.descriptorPool = *m_descriptorPool;
-  allocInfo.setSetLayouts(layouts);
+//   for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+//     vk::DescriptorBufferInfo bufferInfo{};
+//     bufferInfo.buffer = *m_uniformBuffers[i];
+//     bufferInfo.offset = 0;
+//     bufferInfo.range = sizeof(UniformBufferObject);
 
-  m_descriptorSets = raii::DescriptorSets(m_device, allocInfo);
+//     vk::DescriptorImageInfo imageInfo{};
+//     imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+//     imageInfo.imageView = *m_textureImageView;
+//     imageInfo.sampler = *m_textureSampler;
 
-  for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-    vk::DescriptorBufferInfo bufferInfo{};
-    bufferInfo.buffer = *m_uniformBuffers[i];
-    bufferInfo.offset = 0;
-    bufferInfo.range = sizeof(UniformBufferObject);
+//     std::array<vk::WriteDescriptorSet, 2> descriptorWrites{};
+//     descriptorWrites[0].setDstSet(*m_descriptorSets[i]);
+//     descriptorWrites[0].setDstBinding(0);
+//     descriptorWrites[0].setDstArrayElement(0);
+//     descriptorWrites[0].setDescriptorType(vk::DescriptorType::eUniformBuffer);
+//     descriptorWrites[0].setDescriptorCount(1);
+//     descriptorWrites[0].setBufferInfo(bufferInfo);
 
-    vk::DescriptorImageInfo imageInfo{};
-    imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-    imageInfo.imageView = *m_textureImageView;
-    imageInfo.sampler = *m_textureSampler;
+//     descriptorWrites[1].setDstSet(*m_descriptorSets[i]);
+//     descriptorWrites[1].setDstBinding(1);
+//     descriptorWrites[1].setDstArrayElement(0);
+//     descriptorWrites[1].setDescriptorType(
+//         vk::DescriptorType::eCombinedImageSampler);
+//     descriptorWrites[1].setDescriptorCount(1);
+//     descriptorWrites[1].setImageInfo(imageInfo);
 
-    std::array<vk::WriteDescriptorSet, 2> descriptorWrites{};
-    descriptorWrites[0].setDstSet(*m_descriptorSets[i]);
-    descriptorWrites[0].setDstBinding(0);
-    descriptorWrites[0].setDstArrayElement(0);
-    descriptorWrites[0].setDescriptorType(vk::DescriptorType::eUniformBuffer);
-    descriptorWrites[0].setDescriptorCount(1);
-    descriptorWrites[0].setBufferInfo(bufferInfo);
+//     m_device.updateDescriptorSets(descriptorWrites, {});
+//   }
+// }
 
-    descriptorWrites[1].setDstSet(*m_descriptorSets[i]);
-    descriptorWrites[1].setDstBinding(1);
-    descriptorWrites[1].setDstArrayElement(0);
-    descriptorWrites[1].setDescriptorType(
-        vk::DescriptorType::eCombinedImageSampler);
-    descriptorWrites[1].setDescriptorCount(1);
-    descriptorWrites[1].setImageInfo(imageInfo);
+// void VulkanRender::createTextureImage() {
+//   int texWidth = 0;
+//   int texHeight = 0;
+//   int texChannels = 0;
 
-    m_device.updateDescriptorSets(descriptorWrites, {});
-  }
-}
+//   auto *pixels = stbi_load(
+//       "/home/tomblack/Pictures/aiyinsitan/c637138ab1c9a25e1a61f434a6e75ff6.png",
+//       &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 
-void VulkanRender::createTextureImage() {
-  int texWidth = 0;
-  int texHeight = 0;
-  int texChannels = 0;
+//   std::unique_ptr<stbi_uc,
+//                   decltype([](stbi_uc *stbi) { stbi_image_free(stbi); })>
+//       raiiPixels{pixels};
 
-  auto *pixels = stbi_load(
-      "/home/tomblack/Pictures/aiyinsitan/c637138ab1c9a25e1a61f434a6e75ff6.png",
-      &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+//   auto imageSize = static_cast<vk::DeviceSize>(texWidth * texHeight) * 4;
 
-  std::unique_ptr<stbi_uc,
-                  decltype([](stbi_uc *stbi) { stbi_image_free(stbi); })>
-      raiiPixels{pixels};
+//   // texWidth = 540;
+//   // texHeight = 960;
 
-  auto imageSize = static_cast<vk::DeviceSize>(texWidth * texHeight) * 4;
+//   // auto imageSize = m_softRender.getFrameBuffer().size() * sizeof(Pixel);
 
-  // texWidth = 540;
-  // texHeight = 960;
+//   // auto const *pixelTest = m_softRender.getFrameBuffer().data();
 
-  // auto imageSize = m_softRender.getFrameBuffer().size() * sizeof(Pixel);
+//   raii::Buffer stagingBuffer{nullptr};
+//   raii::DeviceMemory stagingBufferMemory{nullptr};
 
-  // auto const *pixelTest = m_softRender.getFrameBuffer().data();
+//   createBuffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc,
+//                vk::MemoryPropertyFlagBits::eHostVisible |
+//                    vk::MemoryPropertyFlagBits::eHostCoherent,
+//                stagingBuffer, stagingBufferMemory);
 
-  raii::Buffer stagingBuffer{nullptr};
-  raii::DeviceMemory stagingBufferMemory{nullptr};
+//   auto *data = (*m_device).mapMemory(*stagingBufferMemory, 0, imageSize);
 
-  createBuffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc,
-               vk::MemoryPropertyFlagBits::eHostVisible |
-                   vk::MemoryPropertyFlagBits::eHostCoherent,
-               stagingBuffer, stagingBufferMemory);
+//   // std::memcpy(data, raiiPixels.get(), static_cast<std::size_t>(imageSize));
+//   std::memcpy(data, pixels, static_cast<std::size_t>(imageSize));
 
-  auto *data = (*m_device).mapMemory(*stagingBufferMemory, 0, imageSize);
+//   (*m_device).unmapMemory(*stagingBufferMemory);
 
-  // std::memcpy(data, raiiPixels.get(), static_cast<std::size_t>(imageSize));
-  std::memcpy(data, pixels, static_cast<std::size_t>(imageSize));
+//   createImage(static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight),
+//               vk::Format::eR8G8B8A8Srgb, vk::ImageTiling::eOptimal,
+//               vk::ImageUsageFlagBits::eTransferDst |
+//                   vk::ImageUsageFlagBits::eSampled,
+//               vk::MemoryPropertyFlagBits::eDeviceLocal, m_textureImage,
+//               m_textureImageMemory);
 
-  (*m_device).unmapMemory(*stagingBufferMemory);
+//   transitionImageLayout(*m_textureImage, vk::Format::eR8G8B8A8Srgb,
+//                         vk::ImageLayout::eUndefined,
+//                         vk::ImageLayout::eTransferDstOptimal);
 
-  createImage(static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight),
-              vk::Format::eR8G8B8A8Srgb, vk::ImageTiling::eOptimal,
-              vk::ImageUsageFlagBits::eTransferDst |
-                  vk::ImageUsageFlagBits::eSampled,
-              vk::MemoryPropertyFlagBits::eDeviceLocal, m_textureImage,
-              m_textureImageMemory);
+//   copyBufferToImage(*stagingBuffer, *m_textureImage,
+//                     static_cast<uint32_t>(texWidth),
+//                     static_cast<uint32_t>(texHeight));
 
-  transitionImageLayout(*m_textureImage, vk::Format::eR8G8B8A8Srgb,
-                        vk::ImageLayout::eUndefined,
-                        vk::ImageLayout::eTransferDstOptimal);
+//   transitionImageLayout(*m_textureImage, vk::Format::eR8G8B8A8Srgb,
+//                         vk::ImageLayout::eTransferDstOptimal,
+//                         vk::ImageLayout::eShaderReadOnlyOptimal);
+// }
 
-  copyBufferToImage(*stagingBuffer, *m_textureImage,
-                    static_cast<uint32_t>(texWidth),
-                    static_cast<uint32_t>(texHeight));
+// void VulkanRender::createImage(uint32_t width, uint32_t height,
+//                                vk::Format format, vk::ImageTiling tiling,
+//                                vk::ImageUsageFlags usage,
+//                                vk::MemoryPropertyFlagBits properties,
+//                                raii::Image &image,
+//                                raii::DeviceMemory &imageMemory) {
+//   vk::ImageCreateInfo imageInfo{};
+//   imageInfo.setImageType(vk::ImageType::e2D);
+//   vk::Extent3D extend{.width = static_cast<uint32_t>(width),
+//                       .height = static_cast<uint32_t>(height),
+//                       .depth = 1};
+//   imageInfo.setExtent(extend);
+//   imageInfo.setMipLevels(1);
+//   imageInfo.setArrayLayers(1);
+//   imageInfo.format = format;
+//   imageInfo.tiling = tiling;
+//   imageInfo.setInitialLayout(vk::ImageLayout::eUndefined);
+//   imageInfo.usage = usage;
+//   imageInfo.sharingMode = vk::SharingMode::eExclusive;
+//   imageInfo.samples = vk::SampleCountFlagBits::e1;
+//   image = m_device.createImage(imageInfo);
 
-  transitionImageLayout(*m_textureImage, vk::Format::eR8G8B8A8Srgb,
-                        vk::ImageLayout::eTransferDstOptimal,
-                        vk::ImageLayout::eShaderReadOnlyOptimal);
-}
+//   auto memRequirements = (*m_device).getImageMemoryRequirements(*image);
 
-void VulkanRender::createImage(uint32_t width, uint32_t height,
-                               vk::Format format, vk::ImageTiling tiling,
-                               vk::ImageUsageFlags usage,
-                               vk::MemoryPropertyFlagBits properties,
-                               raii::Image &image,
-                               raii::DeviceMemory &imageMemory) {
-  vk::ImageCreateInfo imageInfo{};
-  imageInfo.setImageType(vk::ImageType::e2D);
-  vk::Extent3D extend{.width = static_cast<uint32_t>(width),
-                      .height = static_cast<uint32_t>(height),
-                      .depth = 1};
-  imageInfo.setExtent(extend);
-  imageInfo.setMipLevels(1);
-  imageInfo.setArrayLayers(1);
-  imageInfo.format = format;
-  imageInfo.tiling = tiling;
-  imageInfo.setInitialLayout(vk::ImageLayout::eUndefined);
-  imageInfo.usage = usage;
-  imageInfo.sharingMode = vk::SharingMode::eExclusive;
-  imageInfo.samples = vk::SampleCountFlagBits::e1;
-  image = m_device.createImage(imageInfo);
+//   vk::MemoryAllocateInfo allocInfo{};
 
-  auto memRequirements = (*m_device).getImageMemoryRequirements(*image);
+//   allocInfo.allocationSize = memRequirements.size;
+//   allocInfo.memoryTypeIndex =
+//       findMemoryType(memRequirements.memoryTypeBits, properties);
 
-  vk::MemoryAllocateInfo allocInfo{};
+//   imageMemory = m_device.allocateMemory(allocInfo);
 
-  allocInfo.allocationSize = memRequirements.size;
-  allocInfo.memoryTypeIndex =
-      findMemoryType(memRequirements.memoryTypeBits, properties);
-
-  imageMemory = m_device.allocateMemory(allocInfo);
-
-  (*m_device).bindImageMemory(*image, *imageMemory, 0);
-}
+//   (*m_device).bindImageMemory(*image, *imageMemory, 0);
+// }
 
 CommandBufferPointer VulkanRender::beginSingleTimeCommands() {
   vk::CommandBufferAllocateInfo allocInfo{};
@@ -1134,37 +1136,7 @@ raii::ImageView VulkanRender::createImageView(vk::Image image,
   return m_device.createImageView(viewInfo);
 }
 
-void VulkanRender::createTextureImageView() {
-  m_textureImageView =
-      createImageView(*m_textureImage, vk::Format::eR8G8B8A8Srgb);
-}
 
-void VulkanRender::createTextureSampler() {
-  vk::SamplerCreateInfo samplerInfo{};
-
-  samplerInfo.magFilter = vk::Filter::eLinear;
-  samplerInfo.minFilter = vk::Filter::eLinear;
-  samplerInfo.addressModeU = vk::SamplerAddressMode::eRepeat;
-  samplerInfo.addressModeV = vk::SamplerAddressMode::eRepeat;
-  samplerInfo.addressModeW = vk::SamplerAddressMode::eRepeat;
-
-  samplerInfo.anisotropyEnable = VK_TRUE;
-  auto properties = m_physicalDevice.getProperties();
-  samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
-
-  samplerInfo.borderColor = vk::BorderColor::eIntOpaqueBlack;
-  samplerInfo.unnormalizedCoordinates = VK_FALSE;
-
-  samplerInfo.compareEnable = VK_FALSE;
-  samplerInfo.compareOp = vk::CompareOp::eAlways;
-
-  samplerInfo.mipmapMode = vk::SamplerMipmapMode::eLinear;
-  samplerInfo.mipLodBias = 0.0F;
-  samplerInfo.minLod = 0.0F;
-  samplerInfo.maxLod = 0.0F;
-
-  m_textureSampler = m_device.createSampler(samplerInfo);
-}
 
 vk::PipelineShaderStageCreateInfo
 VulkanInitializer::getPipelineShaderStageCreateInfo(
@@ -1188,6 +1160,7 @@ VulkanInitializer::getPipelineVertexInputStateCreateInfo(
 vk::PipelineInputAssemblyStateCreateInfo
 VulkanInitializer::getPipelineInputAssemblyStateCreateInfo() {
   vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
+  //三角形列表模式
   inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
   inputAssembly.primitiveRestartEnable = VK_FALSE;
   return inputAssembly;
@@ -1199,7 +1172,7 @@ VulkanInitializer::getPipelineRasterizationStateCreateInfo() {
   rasterizer.rasterizerDiscardEnable = VK_FALSE;
   rasterizer.polygonMode = vk::PolygonMode::eFill;
   rasterizer.lineWidth = 1.0f;
-  rasterizer.cullMode = vk::CullModeFlagBits::eBack;
+  rasterizer.cullMode = vk::CullModeFlagBits::eNone;
   rasterizer.frontFace = vk::FrontFace::eClockwise;
   rasterizer.depthBiasEnable = VK_FALSE;
   rasterizer.depthBiasConstantFactor = 0.0f; // Optional

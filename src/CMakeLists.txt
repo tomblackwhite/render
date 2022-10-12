@@ -31,6 +31,7 @@ target_link_libraries(asset_manager PUBLIC
   ${VULKAN_PKG}
   CONAN_PKG::stb
   CONAN_PKG::glm
+  CONAN_PKG::tinyobjloader
   tool)
 
 add_library(
@@ -46,20 +47,25 @@ target_link_libraries(render PUBLIC core)
 
 
 
+message("in  src ${CMAKE_CURRENT_BINARY_DIR}")
 
 #compile shader
 set(Vulkan_GLSLC_EXECUTABLE "${CONAN_BIN_DIRS_SHADERC}/glslc")
-message("${CMAKE_BINARY_DIR}${Vulkan_GLSLC_EXECUTABLE}")
+set(SHADER_BIN_PATH "${CMAKE_BINARY_DIR}/shader")
+message("${CMAKE_BINARY_DIR}${Vulkan_GLSLC_EXECUTABLE}${SHADER_BIN_PATH}")
 add_custom_command(
   OUTPUT spirv
-  COMMAND ${Vulkan_GLSLC_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/shader/shader.frag" -o "frag.spv"
-  COMMAND ${Vulkan_GLSLC_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/shader/shader.vert" -o "vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_BIN_PATH}
+  COMMAND ${Vulkan_GLSLC_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/shader/shader.frag" -o "${SHADER_BIN_PATH}/frag.spv"
+  COMMAND ${Vulkan_GLSLC_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/shader/shader.vert" -o "${SHADER_BIN_PATH}/vert.spv"
   VERBATIM
-  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shader/shader.frag" "${CMAKE_CURRENT_SOURCE_DIR}/shader/shader.vert"
+  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shader/shader.frag"
+  "${CMAKE_CURRENT_SOURCE_DIR}/shader/shader.vert"
 )
 
 add_custom_target(
   shaderbin
   DEPENDS spirv
 )
+
 add_dependencies(render shaderbin)
