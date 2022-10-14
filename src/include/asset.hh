@@ -1,5 +1,6 @@
 #pragma once
 #include "tool.hh"
+#include <concepts>
 #include <cstddef>
 #include <cstring>
 #include <fmt/format.h>
@@ -21,14 +22,26 @@ using std::string;
 // can be used in vram
 namespace App {
 
+
+template <typename T, typename... U>
+concept IsAnyOf = (std::same_as<T, U> || ...);
+
+template <typename T>
+concept VulkanAssetObject = IsAnyOf<T, VkBuffer, VkImage>;
 // Buffer Deleter
-struct VulkanBufferDeleter {
+template <typename T> struct VmaDeleter {
 
-  using pointer = VkBuffer;
+  using pointer = T;
 
-  void operator()(VkBuffer pointer) {
+  void operator()(T pointer) {
     if (pointer != nullptr) {
-      vmaDestroyBuffer(m_allocator, pointer, m_allocation);
+      if constexpr (std::is_same_v<T, VkBuffer>) {
+        vmaDestroyBuffer(m_allocator, pointer, m_allocation);
+      } else if constexpr (std::is_same_v<T, VkImage>) {
+        vmaDestroyImage(m_allocator, pointer, m_allocation);
+      }else{
+        //do nothing
+      }
     }
   }
 
@@ -36,7 +49,9 @@ struct VulkanBufferDeleter {
   VmaAllocation m_allocation = {};
 };
 
-using VulkanBufferHandle = std::unique_ptr<VkBuffer, VulkanBufferDeleter>;
+
+using VulkanBufferHandle = std::unique_ptr<VkBuffer, VmaDeleter<VkBuffer>>;
+using VulkanImageHandle = std::unique_ptr<VkImage, VmaDeleter<VkImage>>;
 
 class Texture {
 public:
@@ -118,7 +133,9 @@ struct Mesh {
         tinyobj::LoadObj(&attrib, &shapes, &materials, &err, path.c_str());
 
     if (!err.empty()) {
-      std::cerr << "loadObject error" << err << '\n';
+      std::cerr << "loadObject error " << err << '\n';
+    }
+    if (!re) {
       return false;
     }
 
@@ -176,12 +193,14 @@ struct Mesh {
         index_offset += fv;
       }
     }
+
+    return true;
   }
 };
 
 class VulkanMemory {
 public: // Inteface
-  VulkanBufferHandle
+  [[nodiscard]] VulkanBufferHandle
   createBuffer(VkBufferCreateInfo &createInfo,
                VmaAllocationCreateInfo const &allocationInfo) {
     VkBuffer buffer = {};
@@ -195,11 +214,28 @@ public: // Inteface
       App::ThrowException(fmt::format("create Buffer Error {}", re));
     }
 
-    return VulkanBufferHandle(buffer,
-                              VulkanBufferDeleter{m_allocator, allocation});
+    return VulkanBufferHandle(buffer, VmaDeleter<VkBuffer>{m_allocator, allocation});
   }
 
-  // uploadMesh
+ [[nodiscard]] VulkanImageHandle
+  createImage(VkImageCreateInfo &createInfo,
+               VmaAllocationCreateInfo const &allocationInfo) {
+    VkImage image = {};
+    VmaAllocation allocation = {};
+
+    VkResult re = vmaCreateImage(
+        m_allocator, &static_cast<VkImageCreateInfo const &>(createInfo),
+        &allocationInfo, &image, &allocation, nullptr);
+
+    if (re != VK_SUCCESS) {
+      App::ThrowException(fmt::format("create Image Error {}", re));
+    }
+
+    return VulkanImageHandle(image, VmaDeleter<VkImage>{m_allocator, allocation});
+  }
+
+
+  // uploadMesh 后续可以改成模板
   void uploadMesh(Mesh &mesh) {
     upload(mesh.vertexBuffer, std::span(mesh.vertices));
   }

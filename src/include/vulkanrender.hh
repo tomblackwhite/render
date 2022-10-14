@@ -106,7 +106,6 @@ private:
 
   void initCommands();
 
-
   // void updateUniformBuffer(uint32_t currentImage);
 
   void createInstance();
@@ -120,29 +119,17 @@ private:
   void createCommandPool();
 
   void loadMeshs();
-  // void createVertexBuffer();
-
-  //  void createIndexBuffer();
-
-  // void createUniformBuffers();
-
-  // void createTextureImage();
 
   void createTextureSampler();
 
   //创建commandBuffer记录命令
-  CommandBufferPointer beginSingleTimeCommands();
+  // CommandBufferPointer beginSingleTimeCommands();
 
-  void transitionImageLayout(vk::Image image, vk::Format format,
-                             vk::ImageLayout oldLayout,
-                             vk::ImageLayout newLayout);
-
-  void copyBufferToImage(vk::Buffer buffer, vk::Image image, uint32_t width,
-                         uint32_t height);
+  // void transitionImageLayout(vk::Image image, vk::Format format,
+  //                            vk::ImageLayout oldLayout,
+  //                            vk::ImageLayout newLayout);
 
   // void createTextureImageView();
-
-  raii::ImageView createImageView(vk::Image, vk::Format format);
 
   // void createDescriptorPool();
 
@@ -150,9 +137,9 @@ private:
 
   // void createDescriptorSetLayout();
 
-  void createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
-                    vk::MemoryPropertyFlags properties, raii::Buffer &buffer,
-                    raii::DeviceMemory &bufferMemory);
+  // void createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
+  //                   vk::MemoryPropertyFlags properties, raii::Buffer &buffer,
+  //                   raii::DeviceMemory &bufferMemory);
 
   // void createImage(uint32_t width, uint32_t height, vk::Format format,
   //                  vk::ImageTiling tiling, vk::ImageUsageFlags usage,
@@ -173,6 +160,8 @@ private:
   void createSwapChainImageViews();
 
   void createSwapChain();
+
+  void createDepthImageAndView();
 
   void createSurface(const VkSurfaceKHR &surface);
 
@@ -258,13 +247,18 @@ private:
   raii::Queue m_presentQueue{nullptr};
   raii::SwapchainKHR m_swapChain{nullptr};
 
-  App::Mesh m_mesh;
-
+  App::Mesh m_mesh{};
+  App::Mesh m_monkeyMesh{};
 
   std::vector<vk::Image> m_swapChainImages;
   vk::Format m_swapChainImageFormat;
   vk::Extent2D m_swapChainExtent;
   std::vector<raii::ImageView> m_swapChainImageViews;
+
+  vk::Format m_depthFormat;
+  App::VulkanImageHandle m_depthImage{};
+  raii::ImageView m_depthImageView{nullptr};
+
   raii::PipelineLayout m_pipelineLayout{nullptr};
   raii::RenderPass m_renderPass{nullptr};
 
@@ -318,6 +312,15 @@ struct VulkanInitializer {
   static vk::PipelineColorBlendAttachmentState
   getPipelineColorBlendAttachmentState();
   static vk::PipelineLayoutCreateInfo getPipelineLayoutCreateInfo();
+
+  static vk::PipelineDepthStencilStateCreateInfo getDepthStencilCreateInfo(bool depthTest,bool depthWrite,vk::CompareOp compareOp);
+
+  static vk::ImageCreateInfo getImageCreateInfo(vk::Format format,
+                                                vk::ImageUsageFlags usage,
+                                                vk::Extent3D const &extent);
+  static vk::ImageViewCreateInfo
+  getImageViewCreateInfo(vk::Format format, vk::Image image,
+                         vk::ImageAspectFlags aspect);
 };
 
 // build pipeLine Factory
@@ -326,6 +329,7 @@ public:
   std::vector<vk::PipelineShaderStageCreateInfo> m_shaderStages;
   vk::PipelineVertexInputStateCreateInfo m_vertexInputInfo;
   vk::PipelineInputAssemblyStateCreateInfo m_inputAssembly;
+  vk::PipelineDepthStencilStateCreateInfo m_depthStencilCreateInfo;
   vk::Viewport m_viewPort;
   vk::Rect2D m_scissor;
   vk::PipelineRasterizationStateCreateInfo m_rasterizer;

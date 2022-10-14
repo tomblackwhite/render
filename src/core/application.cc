@@ -1,7 +1,7 @@
 #include "application.hh"
 
 Application::Application()
-    : m_running(true), m_vulkanRender(Application::GetBasePath(),
+    : m_running(true), m_vulkanRender(Application::GetBasePath()+"/..",
                                       m_windowWitdth, m_windowHeight) {
   onInit();
 }
