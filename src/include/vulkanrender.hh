@@ -1,5 +1,8 @@
 #pragma once
 #include "asset.hh"
+#include "render_target.hh"
+#include "pipeline.hh"
+#include "vulkan_info.hh"
 #include <cstddef>
 #include <cstdint>
 #include <fmt/format.h>
@@ -7,8 +10,7 @@
 #include <new>
 #include <ratio>
 #include <stb/stb_image.h>
-#include <tool.hh>
-
+#include "tool.hh"
 #include <chrono>
 #include <fstream>
 #include <glm/glm.hpp>
@@ -27,20 +29,6 @@ namespace raii = vk::raii;
 namespace chrono = std::chrono;
 
 const int MAX_FRAMES_IN_FLIGHT = 2;
-
-struct QueueFamilyIndices {
-  std::optional<uint32_t> graphicsFamily;
-  std::optional<uint32_t> presentFamily;
-  [[nodiscard]] bool isComplete() const {
-    return graphicsFamily.has_value() && presentFamily.has_value();
-  }
-};
-
-struct SwapChainSupportDetails {
-  vk::SurfaceCapabilitiesKHR capabilities;
-  std::vector<vk::SurfaceFormatKHR> formats;
-  std::vector<vk::PresentModeKHR> presentModes;
-};
 
 struct UniformBufferObject {
   glm::mat4 model;
@@ -91,18 +79,18 @@ public:
   void cleanup();
   void drawFrame();
 
-  void resize() { recreateSwapChain(); }
+  // void resize() { recreateSwapChain(); }
 
   std::optional<chrono::duration<float, std::milli>> getPerFrameTime() {
     return m_perFrameTime;
   }
 
-  ~VulkanRender() {}
+  ~VulkanRender()=default;
 
 private:
   void initVulkan(const VkSurfaceKHR &surface);
 
-  void initSwapChain();
+  //  void initSwapChain();
 
   void initCommands();
 
@@ -120,48 +108,23 @@ private:
 
   void loadMeshs();
 
-  void createTextureSampler();
+  // void createTextureSampler();
 
-  //创建commandBuffer记录命令
-  // CommandBufferPointer beginSingleTimeCommands();
+  // void createFramebuffers();
 
-  // void transitionImageLayout(vk::Image image, vk::Format format,
-  //                            vk::ImageLayout oldLayout,
-  //                            vk::ImageLayout newLayout);
-
-  // void createTextureImageView();
-
-  // void createDescriptorPool();
-
-  // void createDescriptorSets();
-
-  // void createDescriptorSetLayout();
-
-  // void createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
-  //                   vk::MemoryPropertyFlags properties, raii::Buffer &buffer,
-  //                   raii::DeviceMemory &bufferMemory);
-
-  // void createImage(uint32_t width, uint32_t height, vk::Format format,
-  //                  vk::ImageTiling tiling, vk::ImageUsageFlags usage,
-  //                  vk::MemoryPropertyFlagBits properties, raii::Image &image,
-  //                  raii::DeviceMemory &imageMemory);
-
-  // void copyBuffer(vk::Buffer srcBuffer, vk::Buffer dstBuffer,
-  //                 vk::DeviceSize size);
-
-  void createFramebuffers();
-
-  void createRenderPass();
+  // void createRenderPass();
 
   void createGraphicsPipeline();
 
   raii::ShaderModule createShaderModule(const std::vector<char> &code);
 
-  void createSwapChainImageViews();
+  // void createSwapChainImageViews();
 
-  void createSwapChain();
+  // void createSwapChain();
 
-  void createDepthImageAndView();
+  // void createDepthImageAndView();
+
+  void createRenderTarget();
 
   void createSurface(const VkSurfaceKHR &surface);
 
@@ -174,34 +137,34 @@ private:
   bool checkDeviceExtensionSupport(const vk::PhysicalDevice &device);
 
   //寻找当前设备支持的队列列表 图形队列列表和presentFamily
-  QueueFamilyIndices findQueueFamilies(const vk::PhysicalDevice &device);
 
   // get swapchainInfo
-  SwapChainSupportDetails
-  querySwapChainSupport(const vk::PhysicalDevice &device);
+  // SwapChainSupportDetails
+  // querySwapChainSupport(const vk::PhysicalDevice &device);
 
-  vk::SurfaceFormatKHR chooseSwapSurfaceFormat(
-      const std::vector<vk::SurfaceFormatKHR> &availableFormats);
+  // vk::SurfaceFormatKHR chooseSwapSurfaceFormat(
+  //     const std::vector<vk::SurfaceFormatKHR> &availableFormats);
 
-  vk::PresentModeKHR chooseSwapPresentMode(
-      const std::vector<vk::PresentModeKHR> &availablePresentModes);
+  // vk::PresentModeKHR chooseSwapPresentMode(
+  //     const std::vector<vk::PresentModeKHR> &availablePresentModes);
 
-  vk::Extent2D chooseSwapExtent(const vk::SurfaceCapabilitiesKHR &capabilities);
+  // vk::Extent2D chooseSwapExtent(const vk::SurfaceCapabilitiesKHR
+  // &capabilities);
 
   uint32_t findMemoryType(uint32_t typeFilter,
                           const vk::MemoryPropertyFlags &properties);
 
-  void recreateSwapChain() {
-    m_device.waitIdle();
-    createSwapChain();
-    createSwapChainImageViews();
-    createRenderPass();
-    createGraphicsPipeline();
-    createFramebuffers();
-    createCommandBuffers();
-  }
+  // void recreateSwapChain() {
+  //   m_device.waitIdle();
+  //   createSwapChain();
+  //   createSwapChainImageViews();
+  //   createRenderPass();
+  //   createGraphicsPipeline();
+  //   createFramebuffers();
+  //   createCommandBuffers();
+  // }
 
-  void populateDebugMessengerCreateInfo(
+static void populateDebugMessengerCreateInfo(
       vk::DebugUtilsMessengerCreateInfoEXT &createInfo);
 
   void setupDebugMessenger();
@@ -232,7 +195,6 @@ private:
     return VK_FALSE;
   }
 
-private:
   raii::Context m_context;
   raii::Instance m_instance{nullptr};
 
@@ -245,25 +207,15 @@ private:
 
   raii::Queue m_graphicsQueue{nullptr};
   raii::Queue m_presentQueue{nullptr};
-  raii::SwapchainKHR m_swapChain{nullptr};
 
   App::Mesh m_mesh{};
   App::Mesh m_monkeyMesh{};
 
-  std::vector<vk::Image> m_swapChainImages;
-  vk::Format m_swapChainImageFormat;
-  vk::Extent2D m_swapChainExtent;
-  std::vector<raii::ImageView> m_swapChainImageViews;
-
-  vk::Format m_depthFormat;
-  App::VulkanImageHandle m_depthImage{};
-  raii::ImageView m_depthImageView{nullptr};
+  std::unique_ptr<App::RenderTarget> m_renderTarget{nullptr};
 
   raii::PipelineLayout m_pipelineLayout{nullptr};
-  raii::RenderPass m_renderPass{nullptr};
-
   raii::Pipeline m_graphicsPipeline{nullptr};
-  std::vector<raii::Framebuffer> m_swapChainFramebuffers;
+
   std::vector<raii::CommandPool> m_commandPools;
 
   std::vector<raii::CommandBuffer> m_commandBuffers;
@@ -295,47 +247,4 @@ private:
   const std::vector<const char *> m_validationLayers = {
       "VK_LAYER_KHRONOS_validation"};
   const std::vector<const char *> m_deviceExtensions{"VK_KHR_swapchain"};
-};
-
-struct VulkanInitializer {
-  static vk::PipelineShaderStageCreateInfo
-  getPipelineShaderStageCreateInfo(vk::ShaderStageFlagBits stage,
-                                   vk::ShaderModule shaderModule);
-  static vk::PipelineVertexInputStateCreateInfo
-  getPipelineVertexInputStateCreateInfo(App::VertexInputDescription const &);
-  static vk::PipelineInputAssemblyStateCreateInfo
-  getPipelineInputAssemblyStateCreateInfo();
-  static vk::PipelineRasterizationStateCreateInfo
-  getPipelineRasterizationStateCreateInfo();
-  static vk::PipelineMultisampleStateCreateInfo
-  getPipelineMultisampleStateCreateInfo();
-  static vk::PipelineColorBlendAttachmentState
-  getPipelineColorBlendAttachmentState();
-  static vk::PipelineLayoutCreateInfo getPipelineLayoutCreateInfo();
-
-  static vk::PipelineDepthStencilStateCreateInfo getDepthStencilCreateInfo(bool depthTest,bool depthWrite,vk::CompareOp compareOp);
-
-  static vk::ImageCreateInfo getImageCreateInfo(vk::Format format,
-                                                vk::ImageUsageFlags usage,
-                                                vk::Extent3D const &extent);
-  static vk::ImageViewCreateInfo
-  getImageViewCreateInfo(vk::Format format, vk::Image image,
-                         vk::ImageAspectFlags aspect);
-};
-
-// build pipeLine Factory
-class PipelineFactory {
-public:
-  std::vector<vk::PipelineShaderStageCreateInfo> m_shaderStages;
-  vk::PipelineVertexInputStateCreateInfo m_vertexInputInfo;
-  vk::PipelineInputAssemblyStateCreateInfo m_inputAssembly;
-  vk::PipelineDepthStencilStateCreateInfo m_depthStencilCreateInfo;
-  vk::Viewport m_viewPort;
-  vk::Rect2D m_scissor;
-  vk::PipelineRasterizationStateCreateInfo m_rasterizer;
-  vk::PipelineColorBlendAttachmentState m_colorBlendAttachment;
-  vk::PipelineMultisampleStateCreateInfo m_multisampling;
-  vk::PipelineLayout m_pipelineLayout;
-
-  raii::Pipeline buildPipeline(raii::Device const &device, vk::RenderPass pass);
 };

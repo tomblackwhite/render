@@ -2,6 +2,7 @@
 #include <SDL_error.h>
 #include <SDL_audio.h>
 #include <boost/stacktrace.hpp>
+#include <vulkan/vulkan.hpp>
 #include <string>
 #include <system_error>
 #include <fmt/core.h>
@@ -10,7 +11,8 @@
 
 namespace App {
 using std::string;
-using std::unique_ptr;
+template <typename T, typename... U>
+concept IsAnyOf = (std::same_as<T, U> || ...);
 
 //标识非所有权
 template<typename T> using observer = T;
@@ -25,10 +27,10 @@ void ThrowException(string const & message, bool hasSDL=false);
 void CheckAudioDriver();
 
 
-#define VULKAN_CHECK(expr,message)\
-  do {                                          \
-      if (VkResult result = expr;result != VK_SUCCESS) {   \
-        App::ThrowException(fmt::format("message{}", result));}             \
-} while (false)
+// #define VULKAN_CHECK(expr,message)\
+//   do {                                          \
+//       if (VkResult result = expr;result != VK_SUCCESS) {   \
+//         App::ThrowException(fmt::format("message{}", result));}             \
+// } while (false)
 
 } // namespace App

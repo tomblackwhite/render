@@ -23,9 +23,6 @@ using std::string;
 namespace App {
 
 
-template <typename T, typename... U>
-concept IsAnyOf = (std::same_as<T, U> || ...);
-
 template <typename T>
 concept VulkanAssetObject = IsAnyOf<T, VkBuffer, VkImage>;
 // Buffer Deleter
@@ -219,7 +216,7 @@ public: // Inteface
 
  [[nodiscard]] VulkanImageHandle
   createImage(VkImageCreateInfo &createInfo,
-               VmaAllocationCreateInfo const &allocationInfo) {
+               VmaAllocationCreateInfo const &allocationInfo) const {
     VkImage image = {};
     VmaAllocation allocation = {};
 
@@ -281,5 +278,17 @@ public: // Inteface
 private:
   VmaAllocator m_allocator = {};
 };
+
+
+namespace VulkanInitializer {
+   vk::ImageCreateInfo getImageCreateInfo(vk::Format format,
+                                                vk::ImageUsageFlags usage,
+                                                vk::Extent3D const &extent);
+  vk::ImageViewCreateInfo
+  getImageViewCreateInfo(vk::Format format, vk::Image image,
+                         vk::ImageAspectFlags aspect);
+
+
+}
 
 } // namespace App

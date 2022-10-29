@@ -14,12 +14,12 @@
 //   int texChannels = 0;
 
 //   auto *pixels =
-//       stbi_load(path.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+//       stbi_load(path.c_str(), &texWidth, &texHeight, &texChannels,
+//       STBI_rgb_alpha);
 
 //   std::unique_ptr<stbi_uc,
 //                   decltype([](stbi_uc *stbi) { stbi_image_free(stbi); })>
 //       raiiPixels{pixels};
-
 
 //   auto imageSize = static_cast<vk::DeviceSize>(texWidth * texHeight) * 4;
 
@@ -45,7 +45,8 @@
 
 //   (*m_device).unmapMemory(*stagingBufferMemory);
 
-//   createImage(static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight),
+//   createImage(static_cast<uint32_t>(texWidth),
+//   static_cast<uint32_t>(texHeight),
 //               vk::Format::eR8G8B8A8Srgb, vk::ImageTiling::eOptimal,
 //               vk::ImageUsageFlagBits::eTransferDst |
 //                   vk::ImageUsageFlagBits::eSampled,
@@ -65,3 +66,37 @@
 //                         vk::ImageLayout::eShaderReadOnlyOptimal);
 
 // }
+
+namespace App {
+vk::ImageCreateInfo VulkanInitializer::getImageCreateInfo(
+    vk::Format format, vk::ImageUsageFlags usage, vk::Extent3D const &extent) {
+  vk::ImageCreateInfo info{};
+  info.setFormat(format);
+  info.setUsage(usage);
+  info.setExtent(extent);
+  info.setImageType(vk::ImageType::e2D);
+  info.setMipLevels(1);
+  info.setArrayLayers(1);
+  info.setSamples(vk::SampleCountFlagBits::e1);
+  info.setTiling(vk::ImageTiling::eOptimal);
+  return info;
+}
+
+vk::ImageViewCreateInfo
+VulkanInitializer::getImageViewCreateInfo(vk::Format format, vk::Image image,
+                                          vk::ImageAspectFlags aspect) {
+  vk::ImageViewCreateInfo info{};
+
+  info.setImage(image);
+  info.setFormat(format);
+  info.subresourceRange.setAspectMask(aspect);
+  info.setViewType(vk::ImageViewType::e2D);
+  info.subresourceRange.setBaseMipLevel(0);
+  info.subresourceRange.setLevelCount(1);
+  info.subresourceRange.setBaseArrayLayer(0);
+  info.subresourceRange.setLayerCount(1);
+
+  return info;
+}
+
+} // namespace App

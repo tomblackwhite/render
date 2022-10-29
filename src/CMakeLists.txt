@@ -19,6 +19,14 @@ add_library(
   asset_manager
   "./core/asset.cc"
   )
+add_library(core_other
+  "./core/render_target.cc"
+  "./core/pipeline.cc")
+
+target_link_libraries(core_other PUBLIC
+  asset_manager tool)
+
+target_include_directories(core_other PUBLIC "./include")
 
 set(VULKAN_PKG
   CONAN_PKG::vulkan-headers
@@ -40,7 +48,9 @@ add_library(
   "./core/vulkanrender.cc"
 )
 target_include_directories(core PUBLIC "./include")
-target_link_libraries(core PUBLIC tool asset_manager)
+target_link_libraries(core PUBLIC tool
+  asset_manager
+  core_other)
 
 add_executable(render main.cc)
 target_link_libraries(render PUBLIC core)
