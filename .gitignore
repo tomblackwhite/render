@@ -36,3 +36,4 @@ build/
 .cache/
 compile_commands.json
 *.core
+/.ccls-cache/

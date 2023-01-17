@@ -2,6 +2,8 @@
 #include "tool.hh"
 #include <concepts>
 #include <cstddef>
+#include <cassert>
+#include <cmath>
 #include <cstring>
 #include <fmt/format.h>
 #include <glm/glm.hpp>
@@ -22,7 +24,6 @@ using std::string;
 // can be used in vram
 namespace App {
 
-
 template <typename T>
 concept VulkanAssetObject = IsAnyOf<T, VkBuffer, VkImage>;
 // Buffer Deleter
@@ -36,16 +37,16 @@ template <typename T> struct VmaDeleter {
         vmaDestroyBuffer(m_allocator, pointer, m_allocation);
       } else if constexpr (std::is_same_v<T, VkImage>) {
         vmaDestroyImage(m_allocator, pointer, m_allocation);
-      }else{
-        //do nothing
+      } else {
+        // do nothing
       }
     }
   }
 
   VmaAllocator m_allocator = {};
   VmaAllocation m_allocation = {};
+  std::size_t m_size = {};
 };
-
 
 using VulkanBufferHandle = std::unique_ptr<VkBuffer, VmaDeleter<VkBuffer>>;
 using VulkanImageHandle = std::unique_ptr<VkImage, VmaDeleter<VkImage>>;
@@ -64,6 +65,15 @@ struct VertexInputDescription {
   std::vector<vk::VertexInputBindingDescription> bindings;
   std::vector<vk::VertexInputAttributeDescription> attributes;
   vk::PipelineVertexInputStateCreateFlags flags = {};
+};
+
+// GPUSceneData
+struct GPUSceneData {
+  glm::vec4 fogColor;
+  glm::vec4 fogDistances;
+  glm::vec4 ambientColor;
+  glm::vec4 sunlightDirection;
+  glm::vec4 sunlightColor;
 };
 
 //顶点
@@ -103,6 +113,17 @@ struct Vertex {
 
     return description;
   }
+};
+
+struct GPUCameraData {
+  glm::mat4 view;
+  glm::mat4 proj;
+  glm::mat4 viewProj;
+};
+
+
+struct GPUObjectData {
+  glm::mat4 modelMatrix;
 };
 
 struct MeshPushConstants {
@@ -211,12 +232,13 @@ public: // Inteface
       App::ThrowException(fmt::format("create Buffer Error {}", re));
     }
 
-    return VulkanBufferHandle(buffer, VmaDeleter<VkBuffer>{m_allocator, allocation});
+    return VulkanBufferHandle(buffer,
+                              VmaDeleter<VkBuffer>{m_allocator, allocation,createInfo.size});
   }
 
- [[nodiscard]] VulkanImageHandle
+  [[nodiscard]] VulkanImageHandle
   createImage(VkImageCreateInfo &createInfo,
-               VmaAllocationCreateInfo const &allocationInfo) const {
+              VmaAllocationCreateInfo const &allocationInfo) const {
     VkImage image = {};
     VmaAllocation allocation = {};
 
@@ -228,19 +250,14 @@ public: // Inteface
       App::ThrowException(fmt::format("create Image Error {}", re));
     }
 
-    return VulkanImageHandle(image, VmaDeleter<VkImage>{m_allocator, allocation});
+    return VulkanImageHandle(image,
+                             VmaDeleter<VkImage>{m_allocator, allocation});
   }
-
 
   // uploadMesh 后续可以改成模板
+  // 创建device memory 同时提交到device memory
   void uploadMesh(Mesh &mesh) {
-    upload(mesh.vertexBuffer, std::span(mesh.vertices));
-  }
-
-  // upload to gpu memory
-  template <typename T>
-  void upload(VulkanBufferHandle &handle, std::span<T> buffer) {
-
+    std::span buffer(mesh.vertices);
     vk::BufferCreateInfo bufferInfo = {};
     bufferInfo.setSize(buffer.size_bytes());
     bufferInfo.setUsage(vk::BufferUsageFlagBits::eVertexBuffer);
@@ -249,15 +266,32 @@ public: // Inteface
     allocationInfo.flags = VmaAllocationCreateFlagBits::
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 
-    handle = createBuffer(static_cast<VkBufferCreateInfo &>(bufferInfo),
-                          allocationInfo);
+    mesh.vertexBuffer = createBuffer(
+        static_cast<VkBufferCreateInfo &>(bufferInfo), allocationInfo);
+    upload(mesh.vertexBuffer, buffer);
+  }
+
+  // upload to gpu memory
+  template <typename T>
+  void upload(VulkanBufferHandle const &handle, std::span<T> buffer,
+              std::size_t offset = 0) {
 
     auto deleter = handle.get_deleter();
     auto *alloction = deleter.m_allocation;
+    auto size=deleter.m_size;
+
+    assert(offset < size);
+
     void *data = nullptr;
+
     VULKAN_CHECK(vmaMapMemory(m_allocator, alloction, &data), "map error");
 
-    std::memcpy(data, buffer.data(), buffer.size_bytes());
+    std::span<std::byte> deviceBuffer( static_cast<std::byte*>(data),deleter.m_size);
+    // data = static_cast<std::byte*>(data) + offset;
+
+    auto subSpan = deviceBuffer.subspan(offset);
+
+    std::memcpy(subSpan.data(), buffer.data(), buffer.size_bytes());
     vmaUnmapMemory(m_allocator, alloction);
   }
 
@@ -280,15 +314,23 @@ private:
 };
 
 
+
 namespace VulkanInitializer {
-   vk::ImageCreateInfo getImageCreateInfo(vk::Format format,
-                                                vk::ImageUsageFlags usage,
-                                                vk::Extent3D const &extent);
-  vk::ImageViewCreateInfo
-  getImageViewCreateInfo(vk::Format format, vk::Image image,
-                         vk::ImageAspectFlags aspect);
+vk::ImageCreateInfo getImageCreateInfo(vk::Format format,
+                                       vk::ImageUsageFlags usage,
+                                       vk::Extent3D const &extent);
+vk::ImageViewCreateInfo getImageViewCreateInfo(vk::Format format,
+                                               vk::Image image,
+                                               vk::ImageAspectFlags aspect);
 
+vk::DescriptorSetLayoutBinding
+getDescriptorSetLayoutBinding(vk::DescriptorType type,
+                              vk::ShaderStageFlags stageFlag, uint32_t binding);
 
-}
+vk::WriteDescriptorSet
+getWriteDescriptorSet(vk::DescriptorType type, vk::DescriptorSet dstSet,
+                      vk::ArrayProxyNoTemporaries<vk::DescriptorBufferInfo> bufferInfos,
+                      uint32_t binding);
+} // namespace VulkanInitializer
 
 } // namespace App

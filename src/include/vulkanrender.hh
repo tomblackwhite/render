@@ -3,6 +3,7 @@
 #include "render_target.hh"
 #include "pipeline.hh"
 #include "vulkan_info.hh"
+#include "frame.hh"
 #include <cstddef>
 #include <cstdint>
 #include <fmt/format.h>
@@ -28,13 +29,13 @@
 namespace raii = vk::raii;
 namespace chrono = std::chrono;
 
-const int MAX_FRAMES_IN_FLIGHT = 2;
+constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
-struct UniformBufferObject {
-  glm::mat4 model;
-  glm::mat4 view;
-  glm::mat4 proj;
-};
+// struct UniformBufferObject {
+//   glm::mat4 model;
+//   glm::mat4 view;
+//   glm::mat4 proj;
+// };
 
 // deleter
 struct CommandBufferDeleter {
@@ -79,7 +80,6 @@ public:
   void cleanup();
   void drawFrame();
 
-  // void resize() { recreateSwapChain(); }
 
   std::optional<chrono::duration<float, std::milli>> getPerFrameTime() {
     return m_perFrameTime;
@@ -90,39 +90,30 @@ public:
 private:
   void initVulkan(const VkSurfaceKHR &surface);
 
-  //  void initSwapChain();
 
-  void initCommands();
 
-  // void updateUniformBuffer(uint32_t currentImage);
+  void initDescriptors();
+
+
+  void initFrameDatas();
 
   void createInstance();
-  void createSyncObjects();
 
-  void recordCommandBuffer(const raii::CommandBuffer &commandBuffer,
+  void drawObjects(uint32_t frameIndex);
+
+  void recordCommandBuffer(vk::CommandBuffer commandBuffer,
                            uint32_t imageIndex);
 
-  void createCommandBuffers();
 
-  void createCommandPool();
+
+  void createFrameDatas();
 
   void loadMeshs();
 
-  // void createTextureSampler();
-
-  // void createFramebuffers();
-
-  // void createRenderPass();
 
   void createGraphicsPipeline();
 
   raii::ShaderModule createShaderModule(const std::vector<char> &code);
-
-  // void createSwapChainImageViews();
-
-  // void createSwapChain();
-
-  // void createDepthImageAndView();
 
   void createRenderTarget();
 
@@ -132,37 +123,15 @@ private:
 
   void pickPhysicalDevice();
 
+  [[nodiscard]]
+  std::size_t getPadUniformBufferOffsetSize(std::size_t originSize) const;
   bool isDeviceSuitable(const vk::PhysicalDevice &device);
 
   bool checkDeviceExtensionSupport(const vk::PhysicalDevice &device);
 
-  //寻找当前设备支持的队列列表 图形队列列表和presentFamily
-
-  // get swapchainInfo
-  // SwapChainSupportDetails
-  // querySwapChainSupport(const vk::PhysicalDevice &device);
-
-  // vk::SurfaceFormatKHR chooseSwapSurfaceFormat(
-  //     const std::vector<vk::SurfaceFormatKHR> &availableFormats);
-
-  // vk::PresentModeKHR chooseSwapPresentMode(
-  //     const std::vector<vk::PresentModeKHR> &availablePresentModes);
-
-  // vk::Extent2D chooseSwapExtent(const vk::SurfaceCapabilitiesKHR
-  // &capabilities);
-
   uint32_t findMemoryType(uint32_t typeFilter,
                           const vk::MemoryPropertyFlags &properties);
 
-  // void recreateSwapChain() {
-  //   m_device.waitIdle();
-  //   createSwapChain();
-  //   createSwapChainImageViews();
-  //   createRenderPass();
-  //   createGraphicsPipeline();
-  //   createFramebuffers();
-  //   createCommandBuffers();
-  // }
 
 static void populateDebugMessengerCreateInfo(
       vk::DebugUtilsMessengerCreateInfoEXT &createInfo);
@@ -203,25 +172,29 @@ static void populateDebugMessengerCreateInfo(
   raii::SurfaceKHR m_surface{nullptr};
   raii::PhysicalDevice m_physicalDevice{nullptr};
   raii::Device m_device{nullptr};
+  vk::PhysicalDeviceProperties m_gpuProperties{};
   std::unique_ptr<App::VulkanMemory> m_vulkanMemory{nullptr};
 
   raii::Queue m_graphicsQueue{nullptr};
   raii::Queue m_presentQueue{nullptr};
 
+  App::GPUSceneData m_sceneParameters;
+  App::VulkanBufferHandle m_sceneParaBuffer{nullptr};
   App::Mesh m_mesh{};
   App::Mesh m_monkeyMesh{};
 
+
   std::unique_ptr<App::RenderTarget> m_renderTarget{nullptr};
+
+
+  raii::DescriptorSetLayout m_descriptorSetlayout{nullptr};
+  raii::DescriptorSetLayout m_objectSetLayout{nullptr};
+  raii::DescriptorPool m_descriptorPool{nullptr};
+
 
   raii::PipelineLayout m_pipelineLayout{nullptr};
   raii::Pipeline m_graphicsPipeline{nullptr};
-
-  std::vector<raii::CommandPool> m_commandPools;
-
-  std::vector<raii::CommandBuffer> m_commandBuffers;
-  std::vector<raii::Semaphore> m_imageAvailableSemaphores;
-  std::vector<raii::Semaphore> m_renderFinishedSemaphores;
-  std::vector<raii::Fence> m_inFlightFences;
+  std::vector<App::FrameData> m_frameDatas;
 
   const std::vector<uint16_t> m_indices = {0, 1, 2, 2, 3, 0};
   uint32_t m_currentFrame = 0;

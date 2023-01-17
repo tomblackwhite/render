@@ -98,5 +98,33 @@ VulkanInitializer::getImageViewCreateInfo(vk::Format format, vk::Image image,
 
   return info;
 }
+namespace VulkanInitializer {
+
+vk::DescriptorSetLayoutBinding getDescriptorSetLayoutBinding(
+    vk::DescriptorType type, vk::ShaderStageFlags stageFlag, uint32_t binding) {
+  vk::DescriptorSetLayoutBinding setBind{};
+  setBind.setDescriptorType(type);
+  setBind.descriptorCount = 1;
+  setBind.setBinding(binding);
+  setBind.setStageFlags(stageFlag);
+  return setBind;
+}
+
+vk::WriteDescriptorSet
+getWriteDescriptorSet(vk::DescriptorType type, vk::DescriptorSet dstSet,
+                      vk::ArrayProxyNoTemporaries<vk::DescriptorBufferInfo> bufferInfos,
+                      uint32_t binding) {
+  vk::WriteDescriptorSet write{};
+
+  write.setDstBinding(binding);
+  write.setDstSet(dstSet);
+  write.setDescriptorCount(1);
+  write.setDescriptorType(type);
+  write.setBufferInfo(bufferInfos);
+
+  return write;
+}
+
+} // namespace VulkanInitializer
 
 } // namespace App

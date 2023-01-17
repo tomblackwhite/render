@@ -9,7 +9,7 @@ set(CMAKE_BUILD_TYPE "Debug")
 
 
 #set c++ standard
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 # enable_testing()
 #add_compile_options(-g)
 
