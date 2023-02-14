@@ -16,7 +16,11 @@
 #include <vk_mem_alloc.h>
 
 #include <stb/stb_image.h>
+
+#define TINYGLTF_NO_INCLUDE_STB_IMAGE
+#include <tiny_gltf.h>
 #include <tiny_obj_loader.h>
+
 
 using std::string;
 
@@ -138,6 +142,7 @@ struct Mesh {
 
   bool loadFromOBJ(std::string const &path) {
 
+    tinygltf::Model model;
     tinyobj::attrib_t attrib;
 
     std::vector<tinyobj::shape_t> shapes;

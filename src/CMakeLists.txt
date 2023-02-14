@@ -11,7 +11,8 @@ add_library(
   "./core/tool.cc"
   )
 target_include_directories(tool PUBLIC "./include")
-target_link_libraries(tool PUBLIC CONAN_PKG::boost CONAN_PKG::sdl CONAN_PKG::fmt)
+target_link_libraries(tool PUBLIC CONAN_PKG::boost CONAN_PKG::sdl CONAN_PKG::fmt
+  )
 #conan_target_link_libraries(tool PUBLIC)
 
 
@@ -40,6 +41,7 @@ target_link_libraries(asset_manager PUBLIC
   CONAN_PKG::stb
   CONAN_PKG::glm
   CONAN_PKG::tinyobjloader
+  CONAN_PKG::tinygltf
   tool)
 
 add_library(

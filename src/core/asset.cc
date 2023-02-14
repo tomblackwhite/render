@@ -8,6 +8,10 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
 
+#define TINYGLTF_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define TINYGLTF_NO_INCLUDE_STB_IMAGE
+#include "tiny_gltf.h"
 // void App::Texture::LoadImageFromFileToTexture(std::string const& path) {
 //   int texWidth = 0;
 //   int texHeight = 0;

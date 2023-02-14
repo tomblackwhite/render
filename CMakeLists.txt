@@ -6,10 +6,11 @@ project(render LANGUAGES CXX)
 
 #set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_BUILD_TYPE "Debug")
-
+#export compile_commands.json
+set(CMAKE_EXPORT_COMPILE_COMMANDS "YES")
 
 #set c++ standard
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 20)
 # enable_testing()
 #add_compile_options(-g)
 
@@ -28,8 +29,6 @@ conan_basic_setup(TARGETS)
 
 add_subdirectory("src")
 
-#export compile_commands.json
-set(CMAKE_EXPORT_COMPILE_COMMANDS "YES")
 
 #copy assets to obj
 file(
