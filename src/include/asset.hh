@@ -1,15 +1,17 @@
 #pragma once
 #include "tool.hh"
-#include <concepts>
-#include <cstddef>
 #include <cassert>
 #include <cmath>
+#include <concepts>
+#include <cstddef>
 #include <cstring>
+#include <expected>
 #include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <memory>
 #include <span>
 #include <string>
+#include <type_traits>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 
@@ -20,7 +22,6 @@
 #define TINYGLTF_NO_INCLUDE_STB_IMAGE
 #include <tiny_gltf.h>
 #include <tiny_obj_loader.h>
-
 
 using std::string;
 
@@ -80,7 +81,7 @@ struct GPUSceneData {
   glm::vec4 sunlightColor;
 };
 
-//顶点
+// 顶点
 struct Vertex {
   glm::vec3 position;
   glm::vec3 normal;
@@ -124,7 +125,6 @@ struct GPUCameraData {
   glm::mat4 proj;
   glm::mat4 viewProj;
 };
-
 
 struct GPUObjectData {
   glm::mat4 modelMatrix;
@@ -221,6 +221,106 @@ struct Mesh {
   }
 };
 
+class Script {
+public:
+  Script();
+  Script(const Script &) = default;
+  Script(Script &&) = delete;
+  Script &operator=(const Script &) = default;
+  Script &operator=(Script &&) = delete;
+  virtual ~Script();
+};
+
+// 节点接口
+class INode {
+public:
+  virtual glm::mat4 matrix() = 0;
+  virtual void setMatrix(glm::mat4 matrix) = 0;
+
+  virtual glm::vec3 translation()=0;
+  virtual void setTranslation(glm::vec3 translation)=0;
+
+  virtual glm::quat rotation()=0;
+  virtual void setRotation(glm::quat quat) =0;
+
+  virtual glm::vec3 scale()=0;
+  virtual void setScale(glm::vec3 scale)=0;
+
+  virtual bool visible()=0;
+  virtual void setViible(bool visible)=0;
+
+  INode(const INode &)  = default;
+  INode(INode &&) = delete;
+  INode &operator=(const INode &) = default;
+  INode &operator=(INode &&) = delete;
+  virtual ~INode() noexcept = default;
+};
+
+class Node : public virtual INode
+{
+public:
+  //! Default constructor
+  Node();
+
+  //! Copy constructor
+  Node(const Node &other);
+
+  //! Move constructor
+  Node(Node &&other) noexcept;
+
+  //! Destructor
+  ~Node() noexcept override  = default;
+
+  //! Copy assignment operator
+  Node& operator=(const Node &other);
+
+  //! Move assignment operator
+  Node& operator=(Node &&other) noexcept;
+
+
+
+private:
+  glm::mat4 m_matrix{};
+  glm::vec3 translation{};
+
+
+};
+
+// 资源管理职责负责加载各种资源,管理各种资源。
+class AssertManager {
+public:
+private:
+};
+
+class Scene {
+public:
+  void play() {}
+};
+
+// 控制整个场景树。
+class SceneManager {
+
+public:
+
+  //初始化脚本之类的
+  void init();
+  // 每帧更新
+  void update();
+
+  void physicalUpdate();
+
+private:
+
+};
+
+template <typename T>
+concept IScene = requires(T t) {
+                   requires App::IsAnyOf<T, Scene>;
+
+                   // play主要是用来表示整个场景需要动起来。
+                   { t.play() } -> std::same_as<void>;
+                 };
+
 class VulkanMemory {
 public: // Inteface
   [[nodiscard]] VulkanBufferHandle
@@ -237,8 +337,8 @@ public: // Inteface
       App::ThrowException(fmt::format("create Buffer Error {}", re));
     }
 
-    return VulkanBufferHandle(buffer,
-                              VmaDeleter<VkBuffer>{m_allocator, allocation,createInfo.size});
+    return VulkanBufferHandle(
+        buffer, VmaDeleter<VkBuffer>{m_allocator, allocation, createInfo.size});
   }
 
   [[nodiscard]] VulkanImageHandle
@@ -283,15 +383,16 @@ public: // Inteface
 
     auto deleter = handle.get_deleter();
     auto *alloction = deleter.m_allocation;
-    auto size=deleter.m_size;
+    auto size = deleter.m_size;
 
     assert(offset < size);
 
     void *data = nullptr;
 
-    VULKAN_CHECK(vmaMapMemory(m_allocator, alloction, &data), "map error");
+    App::VulkanCheck(vmaMapMemory(m_allocator, alloction, &data), "map error");
 
-    std::span<std::byte> deviceBuffer( static_cast<std::byte*>(data),deleter.m_size);
+    std::span<std::byte> deviceBuffer(static_cast<std::byte *>(data),
+                                      deleter.m_size);
     // data = static_cast<std::byte*>(data) + offset;
 
     auto subSpan = deviceBuffer.subspan(offset);
@@ -318,8 +419,6 @@ private:
   VmaAllocator m_allocator = {};
 };
 
-
-
 namespace VulkanInitializer {
 vk::ImageCreateInfo getImageCreateInfo(vk::Format format,
                                        vk::ImageUsageFlags usage,
@@ -332,10 +431,10 @@ vk::DescriptorSetLayoutBinding
 getDescriptorSetLayoutBinding(vk::DescriptorType type,
                               vk::ShaderStageFlags stageFlag, uint32_t binding);
 
-vk::WriteDescriptorSet
-getWriteDescriptorSet(vk::DescriptorType type, vk::DescriptorSet dstSet,
-                      vk::ArrayProxyNoTemporaries<vk::DescriptorBufferInfo> bufferInfos,
-                      uint32_t binding);
+vk::WriteDescriptorSet getWriteDescriptorSet(
+    vk::DescriptorType type, vk::DescriptorSet dstSet,
+    vk::ArrayProxyNoTemporaries<vk::DescriptorBufferInfo> bufferInfos,
+    uint32_t binding);
 } // namespace VulkanInitializer
 
 } // namespace App
