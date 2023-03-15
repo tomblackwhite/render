@@ -13,16 +13,19 @@
 #include <type_traits>
 #include <concepts>
 #include <string_view>
+#include <ranges>
+#include <algorithm>
+
 
 namespace App {
 using std::string;
+namespace ranges = std::ranges;
 namespace stacktrace = boost::stacktrace;
 template <typename T, typename... U>
 concept IsAnyOf = (std::same_as<T, U> || ...);
 
-// 标识非所有权
-template <typename T> using observer = T;
-template <typename T> using observer_ptr = T;
+// 标识所有权
+template <typename T> using own_ptr = T*;
 
 // throw sdl exception and backtrace
 void ThrowException(string const &message, bool hasSDL = false);

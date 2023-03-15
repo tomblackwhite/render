@@ -37,3 +37,11 @@ file(
 )
 add_custom_target(copyasset ALL
   COMMAND ${CMAKE_COMMAND} -E copy_if_different ${asset_file} "${CMAKE_BINARY_DIR}/asset")
+
+
+enable_testing()
+add_executable(test-bin test/test.cc)
+
+target_link_libraries(test-bin core)
+
+add_test(NAME mytest COMMAND test-bin --log_level=message)

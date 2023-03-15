@@ -22,7 +22,8 @@ add_library(
   )
 add_library(core_other
   "./core/render_target.cc"
-  "./core/pipeline.cc")
+  "./core/pipeline.cc"
+  "./core/node.cc")
 
 target_link_libraries(core_other PUBLIC
   asset_manager tool)

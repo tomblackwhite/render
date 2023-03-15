@@ -221,105 +221,35 @@ struct Mesh {
   }
 };
 
-class Script {
-public:
-  Script();
-  Script(const Script &) = default;
-  Script(Script &&) = delete;
-  Script &operator=(const Script &) = default;
-  Script &operator=(Script &&) = delete;
-  virtual ~Script();
-};
-
-// 节点接口
-class INode {
-public:
-  virtual glm::mat4 matrix() = 0;
-  virtual void setMatrix(glm::mat4 matrix) = 0;
-
-  virtual glm::vec3 translation()=0;
-  virtual void setTranslation(glm::vec3 translation)=0;
-
-  virtual glm::quat rotation()=0;
-  virtual void setRotation(glm::quat quat) =0;
-
-  virtual glm::vec3 scale()=0;
-  virtual void setScale(glm::vec3 scale)=0;
-
-  virtual bool visible()=0;
-  virtual void setViible(bool visible)=0;
-
-  INode(const INode &)  = default;
-  INode(INode &&) = delete;
-  INode &operator=(const INode &) = default;
-  INode &operator=(INode &&) = delete;
-  virtual ~INode() noexcept = default;
-};
-
-class Node : public virtual INode
-{
-public:
-  //! Default constructor
-  Node();
-
-  //! Copy constructor
-  Node(const Node &other);
-
-  //! Move constructor
-  Node(Node &&other) noexcept;
-
-  //! Destructor
-  ~Node() noexcept override  = default;
-
-  //! Copy assignment operator
-  Node& operator=(const Node &other);
-
-  //! Move assignment operator
-  Node& operator=(Node &&other) noexcept;
 
 
-
-private:
-  glm::mat4 m_matrix{};
-  glm::vec3 translation{};
-
-
-};
 
 // 资源管理职责负责加载各种资源,管理各种资源。
-class AssertManager {
+class AssetManager {
 public:
+
+
+  //单例
+  static AssetManager& instance(){
+    static AssetManager manager;
+    return manager;
+  }
 private:
 };
 
-class Scene {
-public:
-  void play() {}
-};
+// class Scene {
+// public:
+//   void play() {}
+// };
 
-// 控制整个场景树。
-class SceneManager {
 
-public:
+// template <typename T>
+// concept IScene = requires(T t) {
+//                    requires App::IsAnyOf<T, Scene>;
 
-  //初始化脚本之类的
-  void init();
-  // 每帧更新
-  void update();
-
-  void physicalUpdate();
-
-private:
-
-};
-
-template <typename T>
-concept IScene = requires(T t) {
-                   requires App::IsAnyOf<T, Scene>;
-
-                   // play主要是用来表示整个场景需要动起来。
-                   { t.play() } -> std::same_as<void>;
-                 };
+//                    // play主要是用来表示整个场景需要动起来。
+//                    { t.play() } -> std::same_as<void>;
+//                  };
 
 class VulkanMemory {
 public: // Inteface
