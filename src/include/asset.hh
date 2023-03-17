@@ -9,6 +9,7 @@
 #include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <memory>
+#include <observer.hh>
 #include <span>
 #include <string>
 #include <type_traits>
@@ -221,19 +222,21 @@ struct Mesh {
   }
 };
 
-
-
-
 // 资源管理职责负责加载各种资源,管理各种资源。
-class AssetManager {
+class AssetManager : Observer<Mesh> {
 public:
+  void fieldChanged(Mesh &source, const string &fieldName) override {
 
+  }
 
-  //单例
-  static AssetManager& instance(){
+  // void getScene()
+
+  // 单例
+  static AssetManager &instance() {
     static AssetManager manager;
     return manager;
   }
+
 private:
 };
 
@@ -241,7 +244,6 @@ private:
 // public:
 //   void play() {}
 // };
-
 
 // template <typename T>
 // concept IScene = requires(T t) {

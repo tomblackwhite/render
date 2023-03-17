@@ -7,39 +7,14 @@
 #include <memory>
 #include <tool.hh>
 #include <unordered_map>
+#include <utility>
 #include <vector>
+#include <observer.hh>
+#include <fstream>
+#include <tiny_gltf.h>
 
 namespace App {
 
-/*观察者模式*/
-template <typename T> class Observer {
-public:
-  virtual void fieldChanged(T &source, const string &fieldName) = 0;
-
-  Observer(const Observer &) = delete;
-  Observer(Observer &&) = delete;
-  Observer &operator=(const Observer &) = delete;
-  Observer &operator=(Observer &&) = delete;
-  virtual ~Observer() noexcept = default;
-};
-
-template <typename T> class Observable {
-public:
-  void notify(T &source, const string &name) {
-
-    for (auto observer : m_observers) {
-      observer->fieldChanged(source, name);
-    }
-  }
-  void subscrible(Observer<T> *observer) {
-    m_observers.emplace_back(observer);
-  };
-  void unsubscrible(Observer<T> *observer){};
-
-private:
-  std::vector<Observer<T> *> m_observers;
-};
-/*观察者模式*/
 
 // 节点接口
 class Node : public Observable<Node> {
@@ -110,14 +85,25 @@ using key = std::string;
 class SceneManager {
 
 public:
-  // 初始化脚本之类的
+  // 初始化游戏流程脚本之类的,绑定各种内容。
   void init();
   // 每帧更新
   void update();
 
   void physicalUpdate();
 
+
+  //设置主场景
+  std::string mainScene(){ return m_mainScene;}
+  void setMainScene(const string &scene) { m_mainScene= scene;}
+
+
+
 private:
+  //加载场景
+  void loadScene(const string &scene);
+
+  std::string m_mainScene;
   // which data struct ?
   std::unordered_map<key, std::unique_ptr<Node>> m_nodes{};
   // std::vector<std::unique_ptr<Node>> m_nodes{};
@@ -128,9 +114,24 @@ namespace other {
 
 class Mesh : public Node,public Observable<Mesh> {
 
+  using Node::subscrible;
+  using Node::unsubscrible;
+  using Node::notify;
+  using Observable<Mesh>::notify;
+  using Observable<Mesh>::subscrible;
+  using Observable<Mesh>::unsubscrible;
+
+  std::string meshKey(){ return m_meshKey;}
+
+  void setMeshKey(std::string key){
+    m_meshKey = std::move(key);
+    notify(*this, "meshKey");
+  }
 private:
 
   AssetManager &m_assertManager = AssetManager::instance();
+
+  std::string m_meshKey;
 };
 } // namespace other
 

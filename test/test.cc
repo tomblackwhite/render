@@ -5,6 +5,7 @@
 // #include <glm/ext.hpp>
 #include <glm/gtx/string_cast.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
+#include <boost/url.hpp>
 BOOST_AUTO_TEST_CASE( free_test_function )
 {
   glm::mat4 transform{1.0};
@@ -28,4 +29,10 @@ BOOST_AUTO_TEST_CASE( free_test_function )
   BOOST_TEST_MESSAGE("\n" << glm::to_string(t));
   BOOST_TEST_MESSAGE("\n" << glm::to_string(skew));
   BOOST_TEST_MESSAGE("\n" << glm::to_string(p));
+}
+
+BOOST_AUTO_TEST_CASE(url){
+  boost::url_view u("test.txt");
+  BOOST_TEST_MESSAGE("\n" << u.scheme());
+  BOOST_TEST_MESSAGE("\n" << u.path());
 }
