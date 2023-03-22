@@ -61,6 +61,8 @@ void Application::onInit() {
   }
   m_vulkanRender.initOthers(surface);
 
+  m_manager.setMainScene("neptune.gltf");
+  m_manager.init();
 }
 void Application::onEvent(SDL_Event *event) {
   if (event->type == SDL_QUIT) {

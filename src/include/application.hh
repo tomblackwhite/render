@@ -6,6 +6,7 @@
 #include <tool.hh>
 #include <vulkanrender.hh>
 #include <cstdint>
+#include "scene.hh"
 
 class Application {
 public:
@@ -37,4 +38,7 @@ private:
   uint32_t m_windowHeight = 540;
 
   VulkanRender m_vulkanRender;
+
+  App::SceneManager m_manager;
+
 };

@@ -1,5 +1,7 @@
 #pragma once
 #include "tool.hh"
+#include "node.hh"
+#include <filesystem>
 #include <cassert>
 #include <cmath>
 #include <concepts>
@@ -229,7 +231,28 @@ public:
 
   }
 
-  // void getScene()
+  tinygltf::Model getScene(const std::string& sceneKey) {
+
+    using std::filesystem::path;
+    std::filesystem::path basePath{"asset/"};
+
+    auto scenePath = basePath / sceneKey;
+
+    tinygltf::Model model;
+    std::string err;
+    std::string warn;
+
+    bool ret= m_loader.LoadASCIIFromFile(&model, &err, &warn, scenePath);
+
+    if(!ret){
+      std::clog << "load scene error" << err << "\n";
+    }
+    std::clog << "load scene warn" << warn <<"\n";
+
+
+    return model;
+
+  }
 
   // 单例
   static AssetManager &instance() {
@@ -238,6 +261,7 @@ public:
   }
 
 private:
+  tinygltf::TinyGLTF m_loader;
 };
 
 // class Scene {
