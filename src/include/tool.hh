@@ -15,11 +15,14 @@
 #include <string_view>
 #include <ranges>
 #include <algorithm>
+#include <variant>
+#include <boost/mp11.hpp>
 
 
 namespace App {
 using std::string;
 namespace ranges = std::ranges;
+namespace mp = boost::mp11;
 namespace stacktrace = boost::stacktrace;
 template <typename T, typename... U>
 concept IsAnyOf = (std::same_as<T, U> || ...);
@@ -29,6 +32,27 @@ template <typename T> using own_ptr = T*;
 
 // throw sdl exception and backtrace
 void ThrowException(string const &message, bool hasSDL = false);
+
+
+//给variant赋值，当内部类型匹配时才会触发。
+template<typename... L,typename... R>
+bool VariantAssign(std::variant<L...> &left,std::variant<R...> const &right){
+  bool canAssign = false;
+
+  std::visit([&canAssign,&left](auto &&var){
+
+    using RightCurrentElementType = std::decay_t<decltype(var)>;
+
+    using LeftType = std::variant<L...>;
+
+    if constexpr (mp::mp_contains<LeftType,RightCurrentElementType>::value){
+      canAssign=true;
+      left = var;
+    }
+  },right);
+
+  return canAssign;
+}
 
 
 // check audio driver

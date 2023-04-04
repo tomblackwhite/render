@@ -1,13 +1,15 @@
 #pragma once
-#include "tool.hh"
 #include "node.hh"
-#include <filesystem>
+#include "tool.hh"
 #include <cassert>
 #include <cmath>
 #include <concepts>
+// #include <boost/preprocessor/seq.hpp>
+// #include <boost/preprocessor/variadic.hpp>
 #include <cstddef>
 #include <cstring>
 #include <expected>
+#include <filesystem>
 #include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <memory>
@@ -15,6 +17,7 @@
 #include <span>
 #include <string>
 #include <type_traits>
+#include <variant>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 
@@ -24,6 +27,7 @@
 
 #define TINYGLTF_NO_INCLUDE_STB_IMAGE
 #include <tiny_gltf.h>
+#include "gltf_type.hh"
 #include <tiny_obj_loader.h>
 
 using std::string;
@@ -31,6 +35,9 @@ using std::string;
 // Texture own on vram
 // can be used in vram
 namespace App {
+
+using key = std::string;
+
 
 template <typename T>
 concept VulkanAssetObject = IsAnyOf<T, VkBuffer, VkImage>;
@@ -138,8 +145,32 @@ struct MeshPushConstants {
   glm::mat4 renderMatrix;
 };
 
+
 // Mesh
 struct Mesh {
+
+   template <typename... ComponentTypeList>
+   using VariantSpan = std::variant<std::span<ComponentTypeList>...>;
+
+  using IndexBufferType = VariantSpan<glm::uint8_t,   // 5121
+                                      glm::uint16_t,  // 5123
+                                      glm::uint32_t>; // 5125
+
+  struct SubMesh {
+    // 小端系统可以直接取值使用。大端需要做转换，主要是因为vulkan使用的小端。
+    // gltf小端。这是直接把buffer里的对象解释为c++对象。所以大端解释其中标量的含义
+    // 时需要转换
+
+    // 位置
+    std::span<glm::vec3> positions;
+    // 法向
+    std::span<glm::vec3> normals;
+
+    IndexBufferType indices;
+  };
+
+  std::vector<SubMesh> subMeshs;
+
   std::vector<Vertex> vertices;
   VulkanBufferHandle vertexBuffer;
 
@@ -225,13 +256,13 @@ struct Mesh {
 };
 
 // 资源管理职责负责加载各种资源,管理各种资源。
-class AssetManager : Observer<Mesh> {
+class AssetManager {
 public:
-  void fieldChanged(Mesh &source, const string &fieldName) override {
+  // void fieldChanged(Mesh &source, const string &fieldName) override {
 
-  }
+  // }
 
-  tinygltf::Model getScene(const std::string& sceneKey) {
+  tinygltf::Model getScene(const std::string &sceneKey) {
 
     using std::filesystem::path;
     std::filesystem::path basePath{"asset/"};
@@ -242,16 +273,14 @@ public:
     std::string err;
     std::string warn;
 
-    bool ret= m_loader.LoadASCIIFromFile(&model, &err, &warn, scenePath);
+    bool ret = m_loader.LoadASCIIFromFile(&model, &err, &warn, scenePath);
 
-    if(!ret){
+    if (!ret) {
       std::clog << "load scene error" << err << "\n";
     }
-    std::clog << "load scene warn" << warn <<"\n";
-
+    std::clog << "load scene warn" << warn << "\n";
 
     return model;
-
   }
 
   // 单例
@@ -260,8 +289,14 @@ public:
     return manager;
   }
 
+  std::unordered_map<key, std::vector<Buffer>> &BufferMap() {
+    return m_bufferMap;
+  }
+
 private:
   tinygltf::TinyGLTF m_loader;
+  // std::vector<Buffer> m_buffers;
+  std::unordered_map<key, std::vector<Buffer>> m_bufferMap;
 };
 
 // class Scene {

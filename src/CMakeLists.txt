@@ -12,7 +12,7 @@ add_library(
   )
 target_include_directories(tool PUBLIC "./include")
 target_link_libraries(tool PUBLIC CONAN_PKG::boost CONAN_PKG::sdl CONAN_PKG::fmt
-  )
+  CONAN_PKG::spdlog)
 #conan_target_link_libraries(tool PUBLIC)
 
 

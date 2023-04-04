@@ -1,4 +1,5 @@
 #pragma once
+#include "asset.hh"
 #include "script.hh"
 #include <fstream>
 #include <glm/glm.hpp>
@@ -80,27 +81,24 @@ private:
 
 using key = std::string;
 
-namespace other {
+class MeshInstance : public Node, public Observable<MeshInstance> {
 
-class Mesh : public Node, public Observable<Mesh> {
-
+public:
   using Node::notify;
   using Node::subscrible;
   using Node::unsubscrible;
-  using Observable<Mesh>::notify;
-  using Observable<Mesh>::subscrible;
-  using Observable<Mesh>::unsubscrible;
+  using Observable<MeshInstance>::notify;
+  using Observable<MeshInstance>::subscrible;
+  using Observable<MeshInstance>::unsubscrible;
 
-  std::string meshKey() { return m_meshKey; }
+  // std::string meshKey() { return m_meshKey; }
 
-  void setMeshKey(std::string key) {
-    m_meshKey = std::move(key);
-    notify(*this, "meshKey");
-  }
+  // void setMeshKey(std::string key) {
+  //   m_meshKey = std::move(key);
+  //   notify(*this, "meshKey");
+  // }
 
-private:
-  std::string m_meshKey;
+  //Mesh mesh;
 };
-} // namespace other
 
 } // namespace App

@@ -142,7 +142,7 @@ void VulkanRender::populateDebugMessengerCreateInfo(
 
 void VulkanRender::createSurface(const VkSurfaceKHR &surface) {
 
-  //查看所有权之类删除
+  // 查看所有权之类删除
   m_surface = raii::SurfaceKHR(m_instance, surface);
 }
 
@@ -183,19 +183,27 @@ void VulkanRender::createLogicalDevice() {
     queueCreateInfos.push_back(queueCreateInfo);
   }
 
-  vk::PhysicalDeviceFeatures deviceFeatures{};
-  deviceFeatures.setSamplerAnisotropy(VK_TRUE);
+  vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2,
+                     vk::PhysicalDeviceVulkan12Features>
+      deviceCreateChains{};
+  // vk::PhysicalDeviceFeatures deviceFeatures{};
+  auto &deviceFeatures = deviceCreateChains.get<vk::PhysicalDeviceFeatures2>();
+  deviceFeatures.features.setSamplerAnisotropy(VK_TRUE);
+  auto &device12Features =
+      deviceCreateChains.get<vk::PhysicalDeviceVulkan12Features>();
 
-  vk::DeviceCreateInfo createInfo{};
+  //不需要标量对齐方案
+  //device12Features.setScalarBlockLayout(VK_TRUE);
+
+  auto &createInfo = deviceCreateChains.get<vk::DeviceCreateInfo>();
   createInfo.pQueueCreateInfos = queueCreateInfos.data();
   createInfo.queueCreateInfoCount =
       static_cast<uint32_t>(queueCreateInfos.size());
 
-  createInfo.pEnabledFeatures = &deviceFeatures;
+  // createInfo.pEnabledFeatures = &deviceFeatures;
   createInfo.enabledExtensionCount =
       static_cast<uint32_t>(m_deviceExtensions.size());
   createInfo.ppEnabledExtensionNames = m_deviceExtensions.data();
-
 
   if (m_enableValidationLayers) {
     createInfo.enabledLayerCount =
@@ -206,6 +214,7 @@ void VulkanRender::createLogicalDevice() {
   }
 
   m_device = m_physicalDevice.createDevice(createInfo);
+
 
   m_graphicsQueue = m_device.getQueue(indices.graphicsFamily.value(), 0);
   m_presentQueue = m_device.getQueue(indices.presentFamily.value(), 0);
@@ -231,7 +240,7 @@ void VulkanRender::createGraphicsPipeline() {
       VulkanInitializer::getPipelineShaderStageCreateInfo(
           vk::ShaderStageFlagBits::eFragment, *fragShaderModule));
 
-  //保持生命周期
+  // 保持生命周期
   auto inputDescriptor = App::Vertex::getVertexDescription();
   pipelineFactory.m_vertexInputInfo =
       VulkanInitializer::getPipelineVertexInputStateCreateInfo(inputDescriptor);
@@ -439,7 +448,7 @@ void VulkanRender::drawFrame() {
   auto onesecond = std::chrono::nanoseconds(1s);
   auto seconds = static_cast<uint64_t>(onesecond.count());
 
-  //可以和waitForFence做个异步
+  // 可以和waitForFence做个异步
   drawObjects(m_currentFrame);
 
   auto result = m_device.waitForFences(
@@ -523,7 +532,7 @@ VulkanRender::getPadUniformBufferOffsetSize(std::size_t originSize) const {
 
   auto alignedSize = originSize;
 
-  //获取aligment的整数倍
+  // 获取aligment的整数倍
   if (aligment > 0) {
     alignedSize = ((alignedSize + aligment - 1) / aligment) * aligment;
   }

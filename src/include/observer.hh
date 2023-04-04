@@ -21,7 +21,7 @@ template <typename T> class Observable {
 public:
   void notify(T &source, const string &name) {
 
-    for (auto observer : m_observers) {
+    for (auto &observer : m_observers) {
       observer->fieldChanged(source, name);
     }
   }
