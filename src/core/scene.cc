@@ -11,6 +11,7 @@ void SceneManager::init() {
   // 初始化脚本
   ranges::for_each(m_map, [](auto const &keyValue) {
     auto &[key, node] = keyValue;
+
     auto *pscript = node->script();
     if (pscript) {
       pscript->init();
@@ -85,6 +86,7 @@ SceneFactory::createNode(tinygltf::Node const &node,
   // 创建mesh
   if (node.mesh != -1) {
 
+    result = std::make_unique<MeshInstance>();
   } else {
     result = std::make_unique<Node>();
   }

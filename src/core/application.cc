@@ -70,7 +70,9 @@ void Application::onEvent(SDL_Event *event) {
   }
 }
 
-void Application::onLoop() {}
+void Application::onLoop() {
+  m_manager.update();
+}
 void Application::onRender() {
   m_vulkanRender.drawFrame();
 }
