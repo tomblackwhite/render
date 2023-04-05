@@ -51,22 +51,22 @@ void SceneFactory::createScene(AssetManager &assetManager,
                                SceneManager::NodeMap &map,
                                SceneManager::NodeTree &tree) {
 
-  auto model = assetManager.getScene(sceneKey);
+  auto &model = assetManager.getScene(sceneKey);
   auto &scene = model.scenes[model.defaultScene];
 
-  // buffer Map
-  auto &bufferMap = assetManager.BufferMap();
-  std::vector<Buffer> buffers;
-  buffers.reserve(model.buffers.size());
-  // move buffer
-  for (auto &buffer : model.buffers) {
-    buffers.emplace_back(std::move(buffer.data));
-  }
-  bufferMap.insert({sceneKey, std::move(buffers)});
-  auto &sceneBuffers = bufferMap[sceneKey];
+  // // buffer Map
+  // auto &bufferMap = assetManager.BufferMap();
+  // std::vector<Buffer> buffers;
+  // buffers.reserve(model.buffers.size());
+  // // move buffer
+  // for (auto &buffer : model.buffers) {
+  //   buffers.emplace_back(std::move(buffer.data));
+  // }
+  // bufferMap.insert({sceneKey, std::move(buffers)});
+  // auto &sceneBuffers = bufferMap[sceneKey];
 
   for (auto &node : model.nodes) {
-    map.insert({node.name, createNode(node, model,buffers)});
+    map.insert({node.name, createNode(node, model, model.buffers)});
   }
 
   // 递归构建Node Tree
@@ -79,7 +79,7 @@ void SceneFactory::createScene(AssetManager &assetManager,
 std::unique_ptr<Node>
 SceneFactory::createNode(tinygltf::Node const &node,
                          tinygltf::Model const &model,
-                         std::vector<Buffer> const &buffers) {
+                         std::vector<tinygltf::Buffer> const &buffers) {
 
   auto result = std::unique_ptr<Node>(nullptr);
 
@@ -136,9 +136,9 @@ void SceneFactory::createNodeTree(const tinygltf::Node &node,
   }
 }
 
-std::unique_ptr<Mesh> SceneFactory::createMesh(int meshIndex,
-                                               const tinygltf::Model &model,
-                                               std::vector<Buffer> &buffers) {
+std::unique_ptr<Mesh>
+SceneFactory::createMesh(int meshIndex, const tinygltf::Model &model,
+                         std::vector<tinygltf::Buffer> buffers) {
 
   auto result = std::make_unique<Mesh>();
   auto &mesh = model.meshes[meshIndex];
@@ -197,13 +197,13 @@ std::unique_ptr<Mesh> SceneFactory::createMesh(int meshIndex,
 GlTFSpanVariantType
 SceneFactory::createSpanBuffer(const tinygltf::Accessor &acessor,
                                const tinygltf::Model &model,
-                               std::vector<Buffer> &buffers) {
+                               std::vector<tinygltf::Buffer> &buffers) {
 
   auto const &bufferView = model.bufferViews[acessor.bufferView];
   auto &buffer = buffers[bufferView.buffer];
 
   auto *bufferStart =
-      buffer.data() + bufferView.byteOffset + acessor.byteOffset;
+      buffer.data.data() + bufferView.byteOffset + acessor.byteOffset;
 
   auto componentType = GLTFComponentType{acessor.componentType};
   auto type = GLTFType{acessor.type};

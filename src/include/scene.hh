@@ -56,7 +56,7 @@ public:
 private:
   static std::unique_ptr<Node> createNode(tinygltf::Node const &,
                                           tinygltf::Model const &,
-                                          std::vector<Buffer> const &);
+                                          std::vector<tinygltf::Buffer> const &buffers);
 
   template <typename T, typename Param, std::size_t... Ints>
     requires IsAnyOf<T, glm::vec3, glm::quat, glm::mat4> &&
@@ -64,7 +64,7 @@ private:
                { auto(param[n]) } -> std::floating_point;
              }
   static T castToGLMType(Param const &param,
-                         std::index_sequence<Ints...> ints) {
+                         std::index_sequence<Ints...> /*unused*/) {
     return T{static_cast<float>(param[Ints])...};
   }
 
@@ -75,11 +75,11 @@ private:
 
   // 创建Mesh
   static std::unique_ptr<Mesh> createMesh(int meshIndex, const tinygltf::Model &model,
-                         std::vector<Buffer>  &buffers);
+                         std::vector<tinygltf::Buffer> &buffers);
 
   // 根据acessor 获取span
   static GlTFSpanVariantType createSpanBuffer(const tinygltf::Accessor &acessor,
                                               const tinygltf::Model &model,
-                                              std::vector<Buffer> &buffers);
+                                              std::vector<tinygltf::Buffer> &buffers);
 };
 } // namespace App

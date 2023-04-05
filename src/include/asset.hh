@@ -26,8 +26,8 @@
 #include <stb/stb_image.h>
 
 #define TINYGLTF_NO_INCLUDE_STB_IMAGE
-#include <tiny_gltf.h>
 #include "gltf_type.hh"
+#include <tiny_gltf.h>
 #include <tiny_obj_loader.h>
 
 using std::string;
@@ -37,7 +37,6 @@ using std::string;
 namespace App {
 
 using key = std::string;
-
 
 template <typename T>
 concept VulkanAssetObject = IsAnyOf<T, VkBuffer, VkImage>;
@@ -145,12 +144,11 @@ struct MeshPushConstants {
   glm::mat4 renderMatrix;
 };
 
-
 // Mesh
 struct Mesh {
 
-   template <typename... ComponentTypeList>
-   using VariantSpan = std::variant<std::span<ComponentTypeList>...>;
+  template <typename... ComponentTypeList>
+  using VariantSpan = std::variant<std::span<ComponentTypeList>...>;
 
   using IndexBufferType = VariantSpan<glm::uint8_t,   // 5121
                                       glm::uint16_t,  // 5123
@@ -255,63 +253,6 @@ struct Mesh {
   }
 };
 
-// 资源管理职责负责加载各种资源,管理各种资源。
-class AssetManager {
-public:
-  // void fieldChanged(Mesh &source, const string &fieldName) override {
-
-  // }
-
-  tinygltf::Model getScene(const std::string &sceneKey) {
-
-    using std::filesystem::path;
-    std::filesystem::path basePath{"asset/"};
-
-    auto scenePath = basePath / sceneKey;
-
-    tinygltf::Model model;
-    std::string err;
-    std::string warn;
-
-    bool ret = m_loader.LoadASCIIFromFile(&model, &err, &warn, scenePath);
-
-    if (!ret) {
-      std::clog << "load scene error" << err << "\n";
-    }
-    std::clog << "load scene warn" << warn << "\n";
-
-    return model;
-  }
-
-  // 单例
-  static AssetManager &instance() {
-    static AssetManager manager;
-    return manager;
-  }
-
-  std::unordered_map<key, std::vector<Buffer>> &BufferMap() {
-    return m_bufferMap;
-  }
-
-private:
-  tinygltf::TinyGLTF m_loader;
-  // std::vector<Buffer> m_buffers;
-  std::unordered_map<key, std::vector<Buffer>> m_bufferMap;
-};
-
-// class Scene {
-// public:
-//   void play() {}
-// };
-
-// template <typename T>
-// concept IScene = requires(T t) {
-//                    requires App::IsAnyOf<T, Scene>;
-
-//                    // play主要是用来表示整个场景需要动起来。
-//                    { t.play() } -> std::same_as<void>;
-//                  };
-
 class VulkanMemory {
 public: // Inteface
   [[nodiscard]] VulkanBufferHandle
@@ -409,6 +350,72 @@ public: // Inteface
 private:
   VmaAllocator m_allocator = {};
 };
+
+// 资源管理职责负责加载各种资源,管理各种资源。
+class AssetManager {
+public:
+  // void fieldChanged(Mesh &source, const string &fieldName) override {
+
+  // }
+
+  tinygltf::Model &getScene(const std::string &sceneKey) {
+    if (m_modelMap.contains(sceneKey)) {
+      return m_modelMap[sceneKey];
+    }else{
+      m_modelMap.insert({sceneKey,loadScene(sceneKey)});
+      return m_modelMap[sceneKey];
+    }
+  }
+
+  // 单例
+  static AssetManager &instance() {
+    static AssetManager manager;
+    return manager;
+  }
+
+  // std::unordered_map<key, std::vector<Buffer>> &BufferMap() {
+  //   return m_bufferMap;
+  // }
+
+private:
+  tinygltf::Model loadScene(const std::string &sceneKey) {
+
+    using std::filesystem::path;
+    std::filesystem::path basePath{"asset/"};
+
+    auto scenePath = basePath / sceneKey;
+
+    tinygltf::Model model;
+    std::string err;
+    std::string warn;
+
+    bool ret = m_loader.LoadASCIIFromFile(&model, &err, &warn, scenePath);
+
+    if (!ret) {
+      std::clog << "load scene error" << err << "\n";
+    }
+    std::clog << "load scene warn" << warn << "\n";
+
+    return model;
+  }
+
+  tinygltf::TinyGLTF m_loader;
+  // std::vector<Buffer> m_buffers;
+  std::unordered_map<key, tinygltf::Model> m_modelMap;
+};
+
+// class Scene {
+// public:
+//   void play() {}
+// };
+
+// template <typename T>
+// concept IScene = requires(T t) {
+//                    requires App::IsAnyOf<T, Scene>;
+
+//                    // play主要是用来表示整个场景需要动起来。
+//                    { t.play() } -> std::same_as<void>;
+//                  };
 
 namespace VulkanInitializer {
 vk::ImageCreateInfo getImageCreateInfo(vk::Format format,
