@@ -1,27 +1,29 @@
 #pragma once
 #include "asset.hh"
-#include "render_target.hh"
-#include "pipeline.hh"
-#include "vulkan_info.hh"
 #include "frame.hh"
+#include "pipeline.hh"
+#include "render_target.hh"
+#include "scene.hh"
+#include "tool.hh"
+#include "vulkan_info.hh"
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <fmt/format.h>
-#include <future>
-#include <new>
-#include <ratio>
-#include <stb/stb_image.h>
-#include "tool.hh"
-#include <chrono>
 #include <fstream>
+#include <future>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
 #include <iterator>
+#include <new>
 #include <optional>
+#include <ratio>
 #include <set>
+#include <stb/stb_image.h>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
@@ -29,7 +31,7 @@
 namespace raii = vk::raii;
 namespace chrono = std::chrono;
 
-constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+constexpr uint MAX_FRAMES_IN_FLIGHT = 2;
 
 // struct UniformBufferObject {
 //   glm::mat4 model;
@@ -61,12 +63,43 @@ struct CommandBufferDeleter {
 using CommandBufferPointer =
     std::unique_ptr<raii::CommandBuffer, CommandBufferDeleter>;
 
+class Name {
+public:
+  //! Default constructor
+  Name();
+
+  //! Copy constructor
+  Name(const Name &other);
+
+  //! Move constructor
+  Name(Name &&other) noexcept;
+
+  //! Destructor
+  virtual ~Name() noexcept;
+
+  //! Copy assignment operator
+  Name &operator=(const Name &other);
+
+  //! Move assignment operator
+  Name &operator=(Name &&other) noexcept;
+
+protected:
+private:
+};
+
 class VulkanRender {
 public:
-  explicit VulkanRender(std::string &&path, uint32_t renderWidth,
-                        uint32_t renderHeight)
-      : m_programRootPath(path), m_renderWidth(renderWidth),
-        m_renderHeight(renderHeight) {}
+  explicit VulkanRender(std::string path, App::Extent2D renderSize, std::string appName,
+                        uint32_t appVersion, std::string engineName,
+                        uint32_t engineVersion)
+      : m_programRootPath(std::move(path)),m_renderSize(renderSize), m_appName(std::move(appName)),
+        m_appVersion(appVersion), m_engineName(std::move(engineName)),
+        m_engineVersion(engineVersion) {}
+
+  VulkanRender(VulkanRender &&) = default;
+  VulkanRender(VulkanRender const &) = delete;
+  VulkanRender &operator=(const VulkanRender &other) = delete;
+  VulkanRender &operator=(VulkanRender &&other) = delete;
 
   void initVulkanInstance(std::vector<std::string> &&extensions) {
 
@@ -76,55 +109,54 @@ public:
 
   void initOthers(const VkSurfaceKHR &surface);
   VkInstance getVulkanInstance() { return *m_instance; }
-  void waitDrawClean() { m_device.waitIdle(); };
-  void cleanup();
-  void drawFrame();
+  App::VulkanMemory *getVulkanMemory() { return &m_vulkanMemory; }
+  App::PipelineFactory *getPipelineFactory() { return m_pipelineFactory.get(); }
 
+  void waitDrawClean();
+  void cleanup();
+  void drawFrame(App::Scene const &scene);
 
   std::optional<chrono::duration<float, std::milli>> getPerFrameTime() {
     return m_perFrameTime;
   }
 
-  ~VulkanRender()=default;
+  ~VulkanRender() noexcept ;
 
 private:
   void initVulkan(const VkSurfaceKHR &surface);
 
-
-
-  void initDescriptors();
-
+  void initMemory();
 
   void initFrameDatas();
 
   void createInstance();
 
-  void drawObjects(uint32_t frameIndex);
+  // void drawObjects(uint32_t frameIndex);
 
-  void recordCommandBuffer(vk::CommandBuffer commandBuffer,
-                           uint32_t imageIndex);
+  void recordCommandBuffer(
+      vk::CommandBuffer commandBuffer, uint32_t imageIndex,
+      std::function<void(vk::CommandBuffer commandBuffer)> const &recordFun);
 
+  // void createFrameDatas();
 
+  // void loadMeshs();
 
-  void createFrameDatas();
+  // void createGraphicsPipeline();
 
-  void loadMeshs();
-
-
-  void createGraphicsPipeline();
-
-  raii::ShaderModule createShaderModule(const std::vector<char> &code);
+  void initPipelineFactory();
 
   void createRenderTarget();
 
+
   void createSurface(const VkSurfaceKHR &surface);
 
+  App::VulkanMemory createVulkanMemory();
   void createLogicalDevice();
 
   void pickPhysicalDevice();
 
-  [[nodiscard]]
-  std::size_t getPadUniformBufferOffsetSize(std::size_t originSize) const;
+  [[nodiscard]] std::size_t
+  getPadUniformBufferOffsetSize(std::size_t originSize) const;
   bool isDeviceSuitable(const vk::PhysicalDevice &device);
 
   bool checkDeviceExtensionSupport(const vk::PhysicalDevice &device);
@@ -132,8 +164,7 @@ private:
   uint32_t findMemoryType(uint32_t typeFilter,
                           const vk::MemoryPropertyFlags &properties);
 
-
-static void populateDebugMessengerCreateInfo(
+  static void populateDebugMessengerCreateInfo(
       vk::DebugUtilsMessengerCreateInfoEXT &createInfo);
 
   void setupDebugMessenger();
@@ -171,30 +202,30 @@ static void populateDebugMessengerCreateInfo(
 
   raii::SurfaceKHR m_surface{nullptr};
   raii::PhysicalDevice m_physicalDevice{nullptr};
-  raii::Device m_device{nullptr};
+
+  // to share
+  std::unique_ptr<raii::Device> m_pDevice{nullptr};
   vk::PhysicalDeviceProperties m_gpuProperties{};
-  std::unique_ptr<App::VulkanMemory> m_vulkanMemory{nullptr};
 
   raii::Queue m_graphicsQueue{nullptr};
   raii::Queue m_presentQueue{nullptr};
 
-  App::GPUSceneData m_sceneParameters;
-  App::VulkanBufferHandle m_sceneParaBuffer{nullptr};
-  App::Mesh m_mesh{};
-  App::Mesh m_monkeyMesh{};
-
+  // App::GPUSceneData m_sceneParameters;
+  // App::VulkanBufferHandle m_sceneParaBuffer{nullptr};
+  // App::Mesh m_mesh{};
+  // App::Mesh m_monkeyMesh{};
 
   std::unique_ptr<App::RenderTarget> m_renderTarget{nullptr};
 
+  // raii::DescriptorSetLayout m_descriptorSetlayout{nullptr};
+  // raii::DescriptorSetLayout m_objectSetLayout{nullptr};
 
-  raii::DescriptorSetLayout m_descriptorSetlayout{nullptr};
-  raii::DescriptorSetLayout m_objectSetLayout{nullptr};
-  raii::DescriptorPool m_descriptorPool{nullptr};
+  // raii::PipelineLayout m_pipelineLayout{nullptr};
+  // raii::Pipeline m_graphicsPipeline{nullptr};
+  std::unique_ptr<App::PipelineFactory> m_pipelineFactory{nullptr};
 
-
-  raii::PipelineLayout m_pipelineLayout{nullptr};
-  raii::Pipeline m_graphicsPipeline{nullptr};
-  std::vector<App::FrameData> m_frameDatas;
+  App::VulkanMemory m_vulkanMemory;
+  std::vector<App::Frame> m_frames;
 
   const std::vector<uint16_t> m_indices = {0, 1, 2, 2, 3, 0};
   uint32_t m_currentFrame = 0;
@@ -204,9 +235,15 @@ static void populateDebugMessengerCreateInfo(
 
   std::optional<chrono::duration<float, std::milli>> m_perFrameTime;
 
-  // render size property
-  uint32_t m_renderWidth;
-  uint32_t m_renderHeight;
+
+  App::Extent2D m_renderSize;
+
+  std::string m_appName;
+  uint32_t m_appVersion;
+  std::string m_engineName;
+  uint32_t m_engineVersion;
+
+  uint32_t m_vulkanApiVersion = VK_VERSION_1_3;
 
   // shader path
   const std::string m_programRootPath;

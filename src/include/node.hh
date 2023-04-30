@@ -23,8 +23,8 @@ public:
   Node &operator=(const Node &) = delete;
   Node(Node &&) = default;
   Node &operator=(Node &&) = default;
-  glm::mat4 transform() const { return m_transform; }
-  void setTransform(glm::mat4 matrix) {
+  [[nodiscard]] glm::mat4 const &transform() const { return m_transform; }
+  void setTransform(glm::mat4 const&matrix) {
     m_transform = matrix;
     glm::vec4 per;
     glm::vec3 skew;
@@ -33,20 +33,20 @@ public:
     notify(*this, "transform");
   };
 
-  glm::vec3 translation() const { return m_translation; }
-  void setTranslation(glm::vec3 translation) {
+  [[nodiscard]] glm::vec3 const& translation() const { return m_translation; }
+  void setTranslation(glm::vec3 const& translation) {
     m_translation = translation;
     setTransformInner();
   }
 
-  glm::quat rotation() const { return m_rotation; }
-  void setRotation(glm::quat quat) {
+  [[nodiscard]] glm::quat const& rotation() const { return m_rotation; }
+  void setRotation(glm::quat const &quat) {
     m_rotation = quat;
     setTransformInner();
   }
 
-  glm::vec3 scale() const { return m_scale; }
-  void setScale(glm::vec3 scale) {
+  [[nodiscard]] glm::vec3 const& scale() const { return m_scale; }
+  void setScale(glm::vec3 const&scale) {
     m_scale = scale;
     setTransformInner();
   }
@@ -60,6 +60,19 @@ public:
   Script *script() { return m_script.get(); }
 
   void setScript(Script *script) { m_script.reset(script); }
+
+  std::string &parent() { return m_parent; }
+  std::vector<std::string> &childern() { return m_children; }
+
+  [[nodiscard]] std::string const &parent() const { return m_parent; }
+  [[nodiscard]] std::vector<std::string> const &children() const {
+    return m_children;
+  }
+
+  std::string name;
+
+  //相对于世界坐标的变换
+  glm::mat4 model{1};
 
   virtual ~Node() noexcept = default;
 
@@ -77,6 +90,9 @@ private:
   bool m_visible = true;
 
   std::unique_ptr<Script> m_script{nullptr};
+
+  std::string m_parent;
+  std::vector<std::string> m_children;
 };
 
 using key = std::string;
@@ -98,7 +114,15 @@ public:
   //   notify(*this, "meshKey");
   // }
 
-  //Mesh mesh;
+  Mesh mesh;
+};
+
+class Camera : public Node {
+public:
+  // 默认相机 view matrix
+  //+x is right , up is +y ,looks toward -z
+  glm::mat4 view{{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, -1, 0}, {0, 0, 0, 1}};
+  glm::mat4 projection{1};
 };
 
 } // namespace App

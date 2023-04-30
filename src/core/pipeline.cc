@@ -23,7 +23,7 @@ VulkanInitializer::getPipelineVertexInputStateCreateInfo(
 vk::PipelineInputAssemblyStateCreateInfo
 VulkanInitializer::getPipelineInputAssemblyStateCreateInfo() {
   vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
-  //三角形列表模式
+  // 三角形列表模式
   inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
   inputAssembly.primitiveRestartEnable = VK_FALSE;
   return inputAssembly;
@@ -89,8 +89,29 @@ VulkanInitializer::getDepthStencilCreateInfo(bool depthTest, bool depthWrite,
 
   return info;
 }
-raii::Pipeline PipelineFactory::buildPipeline(const raii::Device &device,
-                                              vk::RenderPass pass) {
+
+vk::Viewport
+VulkanInitializer::getViewPortInverseY(vk::Viewport const &viewPort) {
+  return {.x = viewPort.x,
+          .y = viewPort.y + viewPort.height,
+          .width = viewPort.width,
+          .height = viewPort.height,
+          .minDepth = viewPort.minDepth,
+          .maxDepth = viewPort.maxDepth};
+}
+
+raii::ShaderModule
+PipelineFactory::createShaderModule(const std::span<unsigned char> code) {
+  vk::ShaderModuleCreateInfo createInfo{};
+  createInfo.codeSize = code.size();
+
+  createInfo.pCode =
+      std::launder(reinterpret_cast<const uint32_t *>(code.data()));
+  auto shaderModule = m_pDevice->createShaderModule(createInfo);
+  return shaderModule;
+}
+
+raii::Pipeline PipelineFactory::createPipeline(const GraphicsPipelineCreateInfo & info) {
   vk::PipelineViewportStateCreateInfo viewportState = {};
   viewportState.setViewports(m_viewPort);
   viewportState.setScissors(m_scissor);
@@ -98,30 +119,31 @@ raii::Pipeline PipelineFactory::buildPipeline(const raii::Device &device,
   vk::PipelineColorBlendStateCreateInfo colorBlending{};
   colorBlending.logicOpEnable = VK_FALSE;
   colorBlending.logicOp = vk::LogicOp::eCopy; // Optional
-  colorBlending.setAttachments(m_colorBlendAttachment);
+  colorBlending.setAttachments(info.m_colorBlendAttachment);
   colorBlending.blendConstants[0] = 0.0f; // Optional
   colorBlending.blendConstants[1] = 0.0f; // Optional
   colorBlending.blendConstants[2] = 0.0f; // Optional
   colorBlending.blendConstants[3] = 0.0f; // Optional
 
   vk::GraphicsPipelineCreateInfo pipelineInfo{};
-  pipelineInfo.setStages(m_shaderStages);
-  pipelineInfo.pVertexInputState = &m_vertexInputInfo;
-  pipelineInfo.pInputAssemblyState = &m_inputAssembly;
+  pipelineInfo.setStages(info.m_shaderStages);
+  pipelineInfo.pVertexInputState = &info.m_vertexInputInfo;
+  pipelineInfo.pInputAssemblyState = &info.m_inputAssembly;
   pipelineInfo.pViewportState = &viewportState;
-  pipelineInfo.pRasterizationState = &m_rasterizer;
-  pipelineInfo.pMultisampleState = &m_multisampling;
-  pipelineInfo.pDepthStencilState = &m_depthStencilCreateInfo; // Optional
+  pipelineInfo.pRasterizationState = &info.m_rasterizer;
+  pipelineInfo.pMultisampleState = &info.m_multisampling;
+  pipelineInfo.pDepthStencilState = &info.m_depthStencilCreateInfo; // Optional
   pipelineInfo.pColorBlendState = &colorBlending;
   pipelineInfo.pDynamicState = nullptr; // Optional
-  pipelineInfo.layout = m_pipelineLayout;
+  pipelineInfo.layout = info.m_pipelineLayout;
 
-  pipelineInfo.renderPass = pass;
+  pipelineInfo.renderPass = m_renderPass;
   pipelineInfo.subpass = 0;
   pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
   pipelineInfo.basePipelineIndex = -1;
 
-  auto graphicsPipeline = device.createGraphicsPipeline(nullptr, pipelineInfo);
+  auto graphicsPipeline =
+      m_pDevice->createGraphicsPipeline(nullptr, pipelineInfo);
 
   return graphicsPipeline;
 }

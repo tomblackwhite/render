@@ -14,7 +14,7 @@ void ThrowException(string const &message, bool hasSDL) {
   throw RunTimeErrorWithTrace(whatStr);
 }
 
-void VulkanCheck(VkResult result, std::string_view message) {
+void VulkanCheck(VkResult result, std::string const& message) {
 
   vk::Result re{std::to_underlying(result)};
   string str = fmt::format("message{}\n result{}\n", message, result);

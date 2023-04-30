@@ -72,7 +72,37 @@
 // }
 
 namespace App {
-vk::ImageCreateInfo VulkanInitializer::getImageCreateInfo(
+VertexInputDescription Mesh::SubMesh::getVertexDescription() {
+  vk::VertexInputBindingDescription positionBinding{
+      .binding = 0,
+      .stride = sizeof(PositionType),
+      .inputRate = vk::VertexInputRate::eVertex};
+
+  vk::VertexInputBindingDescription normalBinding{
+      .binding = 1,
+      .stride = sizeof(NormalType),
+      .inputRate = vk::VertexInputRate::eVertex};
+
+  vk::VertexInputAttributeDescription positionAttr{
+      .location = 0,
+      .binding = 0,
+      .format = vk::Format::eR32G32B32Sfloat,
+      .offset = 0};
+  vk::VertexInputAttributeDescription normalAttr{
+      .location = 0,
+      .binding = 1,
+      .format = vk::Format::eR32G32B32Sfloat,
+      .offset = 0};
+
+  VertexInputDescription des{{positionBinding, normalBinding},
+                             {positionAttr, normalAttr}};
+
+  return des;
+}
+
+namespace VulkanInitializer {
+
+vk::ImageCreateInfo getImageCreateInfo(
     vk::Format format, vk::ImageUsageFlags usage, vk::Extent3D const &extent) {
   vk::ImageCreateInfo info{};
   info.setFormat(format);
@@ -87,7 +117,7 @@ vk::ImageCreateInfo VulkanInitializer::getImageCreateInfo(
 }
 
 vk::ImageViewCreateInfo
-VulkanInitializer::getImageViewCreateInfo(vk::Format format, vk::Image image,
+getImageViewCreateInfo(vk::Format format, vk::Image image,
                                           vk::ImageAspectFlags aspect) {
   vk::ImageViewCreateInfo info{};
 
@@ -102,32 +132,34 @@ VulkanInitializer::getImageViewCreateInfo(vk::Format format, vk::Image image,
 
   return info;
 }
-namespace VulkanInitializer {
 
-vk::DescriptorSetLayoutBinding getDescriptorSetLayoutBinding(
-    vk::DescriptorType type, vk::ShaderStageFlags stageFlag, uint32_t binding) {
-  vk::DescriptorSetLayoutBinding setBind{};
-  setBind.setDescriptorType(type);
-  setBind.descriptorCount = 1;
-  setBind.setBinding(binding);
-  setBind.setStageFlags(stageFlag);
-  return setBind;
-}
+// [[deprecated("don't use create directly")]]
+// vk::DescriptorSetLayoutBinding getDescriptorSetLayoutBinding(
+//     vk::DescriptorType type, vk::ShaderStageFlags stageFlag, uint32_t
+//     binding) {
+//   vk::DescriptorSetLayoutBinding setBind{};
+//   setBind.setDescriptorType(type);
+//   setBind.descriptorCount = 1;
+//   setBind.setBinding(binding);
+//   setBind.setStageFlags(stageFlag);
+//   return setBind;
+// }
 
-vk::WriteDescriptorSet
-getWriteDescriptorSet(vk::DescriptorType type, vk::DescriptorSet dstSet,
-                      vk::ArrayProxyNoTemporaries<vk::DescriptorBufferInfo> bufferInfos,
-                      uint32_t binding) {
-  vk::WriteDescriptorSet write{};
+// [[deprecated("don't use")]]
+// vk::WriteDescriptorSet getWriteDescriptorSet(
+//     vk::DescriptorType type, vk::DescriptorSet dstSet,
+//     vk::ArrayProxyNoTemporaries<vk::DescriptorBufferInfo> bufferInfos,
+//     uint32_t binding) {
+//   vk::WriteDescriptorSet write{};
 
-  write.setDstBinding(binding);
-  write.setDstSet(dstSet);
-  write.setDescriptorCount(1);
-  write.setDescriptorType(type);
-  write.setBufferInfo(bufferInfos);
+//   write.setDstBinding(binding);
+//   write.setDstSet(dstSet);
+//   write.setDescriptorCount(1);
+//   write.setDescriptorType(type);
+//   write.setBufferInfo(bufferInfos);
 
-  return write;
-}
+//   return write;
+// }
 
 } // namespace VulkanInitializer
 

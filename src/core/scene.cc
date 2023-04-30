@@ -3,6 +3,44 @@ namespace App {
 using glm::vec3;
 using std::holds_alternative;
 using std::index_sequence;
+using std::initializer_list;
+
+SceneManager::SceneManager(VulkanMemory *memory) : m_vulkanMemory(memory) {
+
+  // 可以放在scene构造函数里，现在相当于二段初始化。
+  //  初始化scene 成员。创建cameraBuffer;
+  vk::BufferCreateInfo bufferInfo{};
+  bufferInfo.setUsage(vk::BufferUsageFlagBits::eUniformBuffer |
+                      vk::BufferUsageFlagBits::eTransferDst);
+  bufferInfo.setSize(sizeof(GPUCamera));
+  VmaAllocationCreateInfo allocationInfo{};
+  allocationInfo.usage = VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  allocationInfo.flags = VmaAllocationCreateFlagBits::
+      VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+  m_scene.cameraBuffer =
+      m_vulkanMemory->createBuffer(bufferInfo, allocationInfo);
+
+  m_scene.sceneSetLayout = m_vulkanMemory->createDescriptorSetLayout(
+      m_scene.getSceneSetLayoutInfo());
+
+  auto sets = m_vulkanMemory->createDescriptorSet(*m_scene.sceneSetLayout);
+  m_scene.sceneSet = std::move(sets[0]);
+
+  vk::DescriptorBufferInfo descriptorBufferInfo{};
+  descriptorBufferInfo.setBuffer(m_scene.cameraBuffer.get());
+  descriptorBufferInfo.setOffset(0);
+  descriptorBufferInfo.setRange(sizeof(GPUCamera));
+
+  // 绑定descriptorSet
+  vk::WriteDescriptorSet writeSet{};
+  writeSet.setDstSet(*m_scene.sceneSet);
+  writeSet.setDstBinding(0);
+  writeSet.setDescriptorType(vk::DescriptorType::eUniformBuffer);
+  writeSet.setBufferInfo(descriptorBufferInfo);
+
+  m_vulkanMemory->updateDescriptorSets(
+      writeSet, initializer_list<vk::CopyDescriptorSet>{});
+}
 
 void SceneManager::init() {
 
@@ -17,6 +55,9 @@ void SceneManager::init() {
       pscript->init();
     }
   });
+
+  // 执行脚本后根据node状态准备showScene
+  showScene(m_mainScene);
 }
 
 void SceneManager::update() {
@@ -46,50 +87,111 @@ void SceneManager::loadScene(const string &scene) {
   m_factory->createScene(m_assetManager, scene, m_map, m_tree);
 }
 
+void SceneManager::showScene(const string &scene) {
+
+  auto visitor = [&showMap = this->m_scene.showMap,
+                  &vulkanMemory = this->m_vulkanMemory, &scene = this->m_scene,
+                  this](Node *pNode) {
+    // 是否显示
+    if ((pNode != nullptr) && pNode->visible()) {
+      if (auto *mesh = dynamic_cast<MeshInstance *>(pNode); mesh) {
+
+        showMap.insert_or_assign(mesh->name, mesh);
+      }
+      if (auto *camera = dynamic_cast<Camera *>(pNode); camera) {
+        scene.camera.proj = camera->projection;
+        scene.camera.view = this->getTransform(camera);
+        scene.camera.viewProj = scene.camera.proj * scene.camera.view;
+      }
+    }
+  };
+
+  visitNode(m_mainScene, visitor);
+
+  auto meshsView =
+      views::all(m_scene.showMap) |
+      views::transform([](auto &elem) -> Mesh & { return elem.second->mesh; });
+
+  // 上传到gpu
+  m_scene.vertexBuffer = m_vulkanMemory->uploadMeshes(meshsView);
+
+  // 上传camera
+  m_vulkanMemory->upload(m_scene.cameraBuffer,
+                         views::single(std::span(&m_scene.camera, 1)));
+}
+
+glm::mat4 SceneManager::getTransform(Node *node) {
+  glm::mat4 trans{node->transform()};
+
+  auto parentKey = node->parent();
+  for (; !parentKey.empty();) {
+    if (auto iter = m_map.find(parentKey); iter != m_map.end()) {
+      trans = iter->second->transform() * trans;
+      parentKey = iter->second->parent();
+    } else {
+      //
+      spdlog::warn("some node lost so set transform to default");
+      return glm::mat4{1};
+    }
+  }
+  return trans;
+}
+
+void SceneManager::visitNode(const string &key,
+                             std::function<void(Node *)> const &visitor) {
+  auto children = m_tree[key];
+
+  for (auto &elemKey : children) {
+    auto &elem = m_map[elemKey];
+    visitor(elem.get());
+    visitNode(elemKey, visitor);
+  }
+}
+
 void SceneFactory::createScene(AssetManager &assetManager,
                                const std::string &sceneKey,
-                               SceneManager::NodeMap &map,
-                               SceneManager::NodeTree &tree) {
+                               NodeMap &map,
+                               NodeTree &tree) {
 
   auto &model = assetManager.getScene(sceneKey);
   auto &scene = model.scenes[model.defaultScene];
 
-  // // buffer Map
-  // auto &bufferMap = assetManager.BufferMap();
-  // std::vector<Buffer> buffers;
-  // buffers.reserve(model.buffers.size());
-  // // move buffer
-  // for (auto &buffer : model.buffers) {
-  //   buffers.emplace_back(std::move(buffer.data));
-  // }
-  // bufferMap.insert({sceneKey, std::move(buffers)});
-  // auto &sceneBuffers = bufferMap[sceneKey];
-
   for (auto &node : model.nodes) {
     map.insert({node.name, createNode(node, model, model.buffers)});
   }
-
+  std::vector<std::string> sceneNodes;
   // 递归构建Node Tree
   for (auto index : scene.nodes) {
     auto &node = model.nodes[index];
-    createNodeTree(node, model, tree);
+    sceneNodes.push_back(node.name);
+    createNodeTree(node, model, map, tree);
   }
+
+  // sceneKey as root of scene nodes
+  tree.insert({sceneKey, std::move(sceneNodes)});
 }
 
 std::unique_ptr<Node>
 SceneFactory::createNode(tinygltf::Node const &node,
                          tinygltf::Model const &model,
-                         std::vector<tinygltf::Buffer> const &buffers) {
+                         std::vector<tinygltf::Buffer> &buffers) {
 
   auto result = std::unique_ptr<Node>(nullptr);
 
   // 创建mesh
   if (node.mesh != -1) {
+    auto meshIns = std::make_unique<MeshInstance>();
+    meshIns->mesh = createMesh(node.mesh, model, buffers);
+    result = std::move(meshIns);
+  } else if (node.camera != -1) {
+    auto camera =
+        std::make_unique<Camera>(createCamera(model.cameras[node.camera]));
 
-    result = std::make_unique<MeshInstance>();
   } else {
     result = std::make_unique<Node>();
   }
+
+  result->name = node.name;
 
   if (!node.scale.empty()) {
     auto scale =
@@ -120,77 +222,124 @@ SceneFactory::createNode(tinygltf::Node const &node,
 
 void SceneFactory::createNodeTree(const tinygltf::Node &node,
                                   const tinygltf::Model &model,
-                                  SceneManager::NodeTree &tree) {
+                                  NodeMap &map,
+                                  NodeTree &tree) {
   if (node.children.empty()) {
     return;
   }
-  SceneManager::NodeTree::value_type keyValue{
-      node.name, SceneManager::NodeTree::mapped_type{}};
+  NodeTree::value_type keyValue{
+      node.name, NodeTree::mapped_type{}};
   tree.insert(keyValue);
 
   auto &value = keyValue.second;
 
+  // 构建场景路径。
+  auto &currentNode = map[node.name];
+
   for (auto index : node.children) {
+
+    // 设置node 中路径信息。
+    auto const &nodeKey = model.nodes[index].name;
+    auto &childrenNode = map[nodeKey];
+    childrenNode->parent() = node.name;
+
+    currentNode->childern().push_back(nodeKey);
     value.push_back(model.nodes[index].name);
-    createNodeTree(model.nodes[index], model, tree);
+    createNodeTree(model.nodes[index], model, map, tree);
   }
 }
 
-std::unique_ptr<Mesh>
-SceneFactory::createMesh(int meshIndex, const tinygltf::Model &model,
-                         std::vector<tinygltf::Buffer> buffers) {
+Mesh SceneFactory::createMesh(int meshIndex, const tinygltf::Model &model,
+                              std::vector<tinygltf::Buffer> &buffers) {
 
-  auto result = std::make_unique<Mesh>();
+  Mesh result;
   auto &mesh = model.meshes[meshIndex];
 
   // 构建mesh
   auto vec3Attributes = std::to_array<std::string>({"POSITION", "NORMAL"});
   for (auto const &primitive : mesh.primitives) {
-    Mesh::SubMesh subMesh;
 
-    // 构建submesh中的attributes
-    auto const &attributes = primitive.attributes;
-    for (auto const &attri : attributes) {
+    // 不存在indice 不会显示。
 
-      if (auto iter = ranges::find(vec3Attributes, attri.first);
-          iter != ranges::end(vec3Attributes)) {
-
-        auto const &accessor = model.accessors[attri.second];
-        // 构建属性span buffer
-        auto spanBuffer = createSpanBuffer(accessor, model, buffers);
-
-        if (*iter == "POSITION" &&
-            holds_alternative<std::span<glm::vec3>>(spanBuffer)) {
-
-          subMesh.positions = std::get<std::span<glm::vec3>>(spanBuffer);
-        } else if (*iter == "NORMAL" &&
-                   holds_alternative<std::span<glm::vec3>>(spanBuffer)) {
-          subMesh.normals = std::get<std::span<glm::vec3>>(spanBuffer);
-        } // else if (*iter == "NORMAL" &&
-        //            holds_alternative<std::span<glm::vec3>>(spanBuffer)) {
-
-        // }
-        else {
-          spdlog::warn("{}'s type in asset is not match  {}'s type' ",
-                       mesh.name, *iter);
-        }
-      }
-    }
-
-    // 构建index
     if (primitive.indices != -1) {
 
+      Mesh::SubMesh subMesh;
       auto const &accessor = model.accessors[primitive.indices];
       auto spanBuffer = createSpanBuffer(accessor, model, buffers);
 
-      if (!VariantAssign(subMesh.indices, spanBuffer)) {
-        // varinat 内部元素不匹配时。
-        spdlog::warn("{}'s type in asset is not match  {}'s type' ", mesh.name,
-                     "indices");
-      }
-    }
+      if (std::holds_alternative<Mesh::IndexSpanType>(spanBuffer)) {
+        subMesh.indices = std::get<Mesh::IndexSpanType>(spanBuffer);
+        // 构建submesh中的attributes
+        auto const &attributes = primitive.attributes;
+        for (auto const &attri : attributes) {
 
-    result->subMeshs.push_back(subMesh);
+          if (auto iter = ranges::find(vec3Attributes, attri.first);
+              iter != ranges::end(vec3Attributes)) {
+
+            auto const &accessor = model.accessors[attri.second];
+            // 构建属性span buffer
+            auto spanBuffer = createSpanBuffer(accessor, model, buffers);
+
+            if (*iter == "POSITION" &&
+                holds_alternative<std::span<glm::vec3>>(spanBuffer)) {
+
+              subMesh.positions = std::get<std::span<glm::vec3>>(spanBuffer);
+            } else if (*iter == "NORMAL" &&
+                       holds_alternative<std::span<glm::vec3>>(spanBuffer)) {
+              subMesh.normals = std::get<std::span<glm::vec3>>(spanBuffer);
+            } // else if (*iter == "NORMAL" &&
+            //            holds_alternative<std::span<glm::vec3>>(spanBuffer)) {
+
+            // }
+            else {
+              spdlog::warn("{}'s type in asset is not match  {}'s type' ",
+                           mesh.name, *iter);
+            }
+          }
+        }
+
+        result.subMeshs.push_back(subMesh);
+        // result.indexCount+=subMesh.indices.size();
+        // result.vertexCount+=subMesh.positions.size();
+      } else {
+        // index type 不匹配时
+        auto indexType = vk::IndexTypeValue<IndexType>::value;
+        spdlog::warn("{}'s index type {} in gltf asset is not match  indices's "
+                     "type {} ,so don't appear\n",
+                     mesh.name, accessor.componentType,
+                     std::to_underlying(indexType));
+      }
+    } else {
+      spdlog::warn(
+          "{} primitive don't have indices attribute, so don't appear \n",
+          mesh.name);
+    }
+  }
+  return result;
+}
+
+Camera SceneFactory::createCamera(const tinygltf::Camera &camera) {
+  Camera result;
+  if (camera.type == "perspective") {
+    auto const &perpective = camera.perspective;
+
+    // finite
+    if (perpective.zfar != 0.0) {
+
+      result.projection =
+          glm::perspective(perpective.yfov, perpective.aspectRatio,
+                           perpective.znear, perpective.zfar);
+    } else {
+      result.projection = glm::infinitePerspective(
+          perpective.yfov, perpective.aspectRatio, perpective.znear);
+    }
+  } else if (camera.type == "orthographic") {
+    auto const &orth = camera.orthographic;
+    result.projection = glm::ortho(0.0, 2 * orth.xmag, 0.0, 2 * orth.ymag,
+                                   orth.znear, orth.zfar);
+  } else {
+    // do nothing
+    spdlog::warn("camera don't have type");
   }
   return result;
 }

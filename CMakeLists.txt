@@ -2,7 +2,7 @@
 
 cmake_minimum_required(VERSION "3.20" )
 
-project(render LANGUAGES CXX)
+project(render VERSION 0.0.0 LANGUAGES CXX)
 
 #set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_BUILD_TYPE "Debug")
@@ -16,6 +16,9 @@ set(CMAKE_CXX_STANDARD 23)
 
 add_compile_definitions($<$<CONFIG:Debug>:DEBUG>)
 add_compile_definitions(
+  "PROJECT_VERSION_MAJOR"
+  "PROJECT_VERSION_MINOR"
+  "PROJECT_VERSION_PATCH"
   "GLM_FORCE_DEPTH_ZERO_TO_ONE"
   "VULKAN_HPP_NO_CONSTRUCTORS")
 

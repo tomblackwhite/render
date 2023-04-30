@@ -1,5 +1,4 @@
 #pragma once
-#include "node.hh"
 #include "tool.hh"
 #include <cassert>
 #include <cmath>
@@ -36,6 +35,7 @@ using std::string;
 // can be used in vram
 namespace App {
 
+namespace raii = vk::raii;
 using key = std::string;
 
 template <typename T>
@@ -45,7 +45,7 @@ template <typename T> struct VmaDeleter {
 
   using pointer = T;
 
-  void operator()(T pointer) {
+  void operator()(T pointer) noexcept {
     if (pointer != nullptr) {
       if constexpr (std::is_same_v<T, VkBuffer>) {
         vmaDestroyBuffer(m_allocator, pointer, m_allocation);
@@ -139,10 +139,8 @@ struct GPUObjectData {
   glm::mat4 modelMatrix;
 };
 
-struct MeshPushConstants {
-  glm::vec4 data;
-  glm::mat4 renderMatrix;
-};
+// 现在假设所有mesh中的indexType全部为16位。如果不是会不加载。打log;
+using IndexType = uint16_t;
 
 // Mesh
 struct Mesh {
@@ -150,107 +148,123 @@ struct Mesh {
   template <typename... ComponentTypeList>
   using VariantSpan = std::variant<std::span<ComponentTypeList>...>;
 
-  using IndexBufferType = VariantSpan<glm::uint8_t,   // 5121
-                                      glm::uint16_t,  // 5123
-                                      glm::uint32_t>; // 5125
+  using IndexVarSpanType = VariantSpan<glm::uint8_t,   // 5121
+                                       glm::uint16_t,  // 5123
+                                       glm::uint32_t>; // 5125
+  using IndexSpanType = std::span<IndexType>;
 
+  using PositionType = glm::tvec3<float>;
+  using NormalType = glm::tvec3<float>;
   struct SubMesh {
     // 小端系统可以直接取值使用。大端需要做转换，主要是因为vulkan使用的小端。
     // gltf小端。这是直接把buffer里的对象解释为c++对象。所以大端解释其中标量的含义
-    // 时需要转换
+    // 时需要转换 不过不需要解释标量含义，则可以直接传给gpu使用。
 
     // 位置
-    std::span<glm::vec3> positions;
-    // 法向
-    std::span<glm::vec3> normals;
+    std::span<PositionType> positions;
 
-    IndexBufferType indices;
+    // 法向
+    std::span<NormalType> normals;
+
+    // 顶点索引
+    IndexSpanType indices;
+    static VertexInputDescription getVertexDescription();
   };
 
   std::vector<SubMesh> subMeshs;
 
-  std::vector<Vertex> vertices;
-  VulkanBufferHandle vertexBuffer;
+  // uint32_t indexCount =0;
+  // uint32_t vertexCount=0;
 
-  bool loadFromOBJ(std::string const &path) {
+  // bool loadFromOBJ(std::string const &path) {
 
-    tinygltf::Model model;
-    tinyobj::attrib_t attrib;
+  //   tinygltf::Model model;
+  //   tinyobj::attrib_t attrib;
 
-    std::vector<tinyobj::shape_t> shapes;
+  //   std::vector<tinyobj::shape_t> shapes;
 
-    std::vector<tinyobj::material_t> materials;
+  //   std::vector<tinyobj::material_t> materials;
 
-    std::string warn;
-    std::string err;
+  //   std::string warn;
+  //   std::string err;
 
-    bool re =
-        tinyobj::LoadObj(&attrib, &shapes, &materials, &err, path.c_str());
+  //   bool re =
+  //       tinyobj::LoadObj(&attrib, &shapes, &materials, &err, path.c_str());
 
-    if (!err.empty()) {
-      std::cerr << "loadObject error " << err << '\n';
-    }
-    if (!re) {
-      return false;
-    }
+  //   if (!err.empty()) {
+  //     std::cerr << "loadObject error " << err << '\n';
+  //   }
+  //   if (!re) {
+  //     return false;
+  //   }
 
-    for (auto &shape : shapes) {
+  //   for (auto &shape : shapes) {
 
-      // Loop over faces(polygon)
-      size_t index_offset = 0;
-      for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); f++) {
-        size_t fv = size_t(shape.mesh.num_face_vertices[f]);
+  //     // Loop over faces(polygon)
+  //     size_t index_offset = 0;
+  //     for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); f++) {
+  //       size_t fv = size_t(shape.mesh.num_face_vertices[f]);
 
-        // Loop over vertices in the face.
-        for (size_t v = 0; v < fv; v++) {
-          // access to vertex
-          tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
+  //       // Loop over vertices in the face.
+  //       for (size_t v = 0; v < fv; v++) {
+  //         // access to vertex
+  //         tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
 
-          Vertex vertex{};
-          tinyobj::real_t vx =
-              attrib.vertices[3 * size_t(idx.vertex_index) + 0];
-          tinyobj::real_t vy =
-              attrib.vertices[3 * size_t(idx.vertex_index) + 1];
-          tinyobj::real_t vz =
-              attrib.vertices[3 * size_t(idx.vertex_index) + 2];
+  //         Vertex vertex{};
+  //         tinyobj::real_t vx =
+  //             attrib.vertices[3 * size_t(idx.vertex_index) + 0];
+  //         tinyobj::real_t vy =
+  //             attrib.vertices[3 * size_t(idx.vertex_index) + 1];
+  //         tinyobj::real_t vz =
+  //             attrib.vertices[3 * size_t(idx.vertex_index) + 2];
 
-          vertex.position = glm::vec3(vx, vy, vz);
-          // Check if `normal_index` is zero or positive. negative = no normal
-          // data
-          if (idx.normal_index >= 0) {
-            tinyobj::real_t nx =
-                attrib.normals[3 * size_t(idx.normal_index) + 0];
-            tinyobj::real_t ny =
-                attrib.normals[3 * size_t(idx.normal_index) + 1];
-            tinyobj::real_t nz =
-                attrib.normals[3 * size_t(idx.normal_index) + 2];
-            vertex.normal = glm::vec3(nx, ny, nz);
-          }
+  //         vertex.position = glm::vec3(vx, vy, vz);
+  //         // Check if `normal_index` is zero or positive. negative = no
+  //         normal
+  //         // data
+  //         if (idx.normal_index >= 0) {
+  //           tinyobj::real_t nx =
+  //               attrib.normals[3 * size_t(idx.normal_index) + 0];
+  //           tinyobj::real_t ny =
+  //               attrib.normals[3 * size_t(idx.normal_index) + 1];
+  //           tinyobj::real_t nz =
+  //               attrib.normals[3 * size_t(idx.normal_index) + 2];
+  //           vertex.normal = glm::vec3(nx, ny, nz);
+  //         }
 
-          // Check if `texcoord_index` is zero or positive. negative = no
-          // texcoord data
-          if (idx.texcoord_index >= 0) {
-            tinyobj::real_t tx =
-                attrib.texcoords[2 * size_t(idx.texcoord_index) + 0];
-            tinyobj::real_t ty =
-                attrib.texcoords[2 * size_t(idx.texcoord_index) + 1];
-          }
+  //         // Check if `texcoord_index` is zero or positive. negative = no
+  //         // texcoord data
+  //         if (idx.texcoord_index >= 0) {
+  //           tinyobj::real_t tx =
+  //               attrib.texcoords[2 * size_t(idx.texcoord_index) + 0];
+  //           tinyobj::real_t ty =
+  //               attrib.texcoords[2 * size_t(idx.texcoord_index) + 1];
+  //         }
 
-          vertex.color = vertex.normal;
+  //         vertex.color = vertex.normal;
 
-          // Optional: vertex colors
-          // tinyobj::real_t red   =
-          // attrib.colors[3*size_t(idx.vertex_index)+0]; tinyobj::real_t green
-          // = attrib.colors[3*size_t(idx.vertex_index)+1]; tinyobj::real_t blue
-          // = attrib.colors[3*size_t(idx.vertex_index)+2];
-          vertices.push_back(vertex);
-        }
-        index_offset += fv;
-      }
-    }
+  //         // Optional: vertex colors
+  //         // tinyobj::real_t red   =
+  //         // attrib.colors[3*size_t(idx.vertex_index)+0]; tinyobj::real_t
+  //         green
+  //         // = attrib.colors[3*size_t(idx.vertex_index)+1]; tinyobj::real_t
+  //         blue
+  //         // = attrib.colors[3*size_t(idx.vertex_index)+2];
+  //         vertices.push_back(vertex);
+  //       }
+  //       index_offset += fv;
+  //     }
+  //   }
 
-    return true;
-  }
+  //   return true;
+  // }
+};
+
+// VertexBuffer Struct
+struct VertexBuffer {
+  VulkanBufferHandle indexBuffer;
+  std::vector<VulkanBufferHandle> buffers;
+  VertexInputDescription inputDescription;
 };
 
 class VulkanMemory {
@@ -262,7 +276,7 @@ public: // Inteface
     VmaAllocation allocation = {};
 
     VkResult re = vmaCreateBuffer(
-        m_allocator, &static_cast<VkBufferCreateInfo const &>(createInfo),
+        m_allocator.get(), &static_cast<VkBufferCreateInfo const &>(createInfo),
         &allocationInfo, &buffer, &allocation, nullptr);
 
     if (re != VK_SUCCESS) {
@@ -270,7 +284,8 @@ public: // Inteface
     }
 
     return VulkanBufferHandle(
-        buffer, VmaDeleter<VkBuffer>{m_allocator, allocation, createInfo.size});
+        buffer,
+        VmaDeleter<VkBuffer>{m_allocator.get(), allocation, createInfo.size});
   }
 
   [[nodiscard]] VulkanImageHandle
@@ -280,75 +295,194 @@ public: // Inteface
     VmaAllocation allocation = {};
 
     VkResult re = vmaCreateImage(
-        m_allocator, &static_cast<VkImageCreateInfo const &>(createInfo),
+        m_allocator.get(), &static_cast<VkImageCreateInfo const &>(createInfo),
         &allocationInfo, &image, &allocation, nullptr);
 
     if (re != VK_SUCCESS) {
       App::ThrowException(fmt::format("create Image Error {}", re));
     }
 
-    return VulkanImageHandle(image,
-                             VmaDeleter<VkImage>{m_allocator, allocation});
+    return VulkanImageHandle(
+        image, VmaDeleter<VkImage>{m_allocator.get(), allocation});
   }
 
   // uploadMesh 后续可以改成模板
   // 创建device memory 同时提交到device memory
-  void uploadMesh(Mesh &mesh) {
-    std::span buffer(mesh.vertices);
-    vk::BufferCreateInfo bufferInfo = {};
-    bufferInfo.setSize(buffer.size_bytes());
-    bufferInfo.setUsage(vk::BufferUsageFlagBits::eVertexBuffer);
+  // void uploadMesh(Mesh &mesh) {
+
+  //   std::span buffer(mesh.vertices);
+  //   vk::BufferCreateInfo bufferInfo = {};
+  //   bufferInfo.setSize(buffer.size_bytes());
+  //   bufferInfo.setUsage(vk::BufferUsageFlagBits::eVertexBuffer);
+  //   VmaAllocationCreateInfo allocationInfo = {};
+  //   allocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  //   allocationInfo.flags = VmaAllocationCreateFlagBits::
+  //       VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+
+  //   mesh.vertexBuffer = createBuffer(
+  //       static_cast<VkBufferCreateInfo &>(bufferInfo), allocationInfo);
+  //   // upload(mesh.vertexBuffer, buffer);
+  // }
+
+  // 现在假设所有mesh中的indexType全部为16位。如果不是会不加载。打log;
+  template <ranges::view T>
+    requires std::same_as<ranges::range_value_t<T>, Mesh>
+  VertexBuffer uploadMeshes(T meshes) {
+
+    // 用于绑定vertexBuffer
+    std::vector<Mesh::IndexSpanType> indices;
+    vk::DeviceSize indexBufferSize = 0;
+    std::vector<std::span<Mesh::PositionType>> positions;
+    vk::DeviceSize positionBufferSize = 0;
+    std::vector<std::span<Mesh::NormalType>> normals;
+    vk::DeviceSize normalBufferSize = 0;
+
+    // 获取mesh大小。
+    vk::DeviceSize meshSize = 0;
+    for (auto &mesh : meshes) {
+      for (auto &subMesh : mesh.subMeshs) {
+        indexBufferSize += subMesh.indices.size_bytes();
+        indices.push_back(subMesh.indices);
+        positionBufferSize += subMesh.positions.size_bytes();
+        positions.push_back(subMesh.positions);
+        normalBufferSize += subMesh.normals.size_bytes();
+        normals.push_back(subMesh.normals);
+      }
+    }
+    meshSize = indexBufferSize + positionBufferSize + normalBufferSize;
+
+    VertexBuffer vertexBuffer;
+    vertexBuffer.inputDescription = Mesh::SubMesh::getVertexDescription();
+    // 创建buffer
     VmaAllocationCreateInfo allocationInfo = {};
     allocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
     allocationInfo.flags = VmaAllocationCreateFlagBits::
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+    vk::BufferCreateInfo indexBufferInfo = {
+        .size = indexBufferSize,
+        .usage = vk::BufferUsageFlagBits::eIndexBuffer};
+    auto indexBuffer = createBuffer(indexBufferInfo, allocationInfo);
+    vertexBuffer.indexBuffer = std::move(indexBuffer);
 
-    mesh.vertexBuffer = createBuffer(
-        static_cast<VkBufferCreateInfo &>(bufferInfo), allocationInfo);
-    upload(mesh.vertexBuffer, buffer);
+    upload(indexBuffer, ranges::views::all(indices));
+
+    vk::BufferCreateInfo positionBufferInfo = {
+        .size = positionBufferSize,
+        .usage = vk::BufferUsageFlagBits::eVertexBuffer};
+    auto positionBuffer = createBuffer(indexBufferInfo, allocationInfo);
+    upload(positionBuffer, ranges::views::all(positions));
+    vertexBuffer.buffers.push_back(std::move(indexBuffer));
+
+    vk::BufferCreateInfo normalBufferInfo = {
+        .size = positionBufferSize,
+        .usage = vk::BufferUsageFlagBits::eVertexBuffer};
+    auto normalBuffer = createBuffer(normalBufferInfo, allocationInfo);
+    upload(normalBuffer, ranges::views::all(normals));
+    vertexBuffer.buffers.push_back(std::move(normalBuffer));
+
+    return vertexBuffer;
   }
 
-  // upload to gpu memory
-  template <typename T>
-  void upload(VulkanBufferHandle const &handle, std::span<T> buffer,
-              std::size_t offset = 0) {
+  // maybe change element_type as std::span<byte>
+  //  upload to gpu memory
+  template <typename View>
+    requires std::same_as<
+        ranges::range_value_t<View>,
+        std::span<typename ranges::range_value_t<View>::element_type>>
+  void upload(VulkanBufferHandle const &handle, View buffers) {
 
     auto deleter = handle.get_deleter();
     auto *alloction = deleter.m_allocation;
     auto size = deleter.m_size;
 
-    assert(offset < size);
-
     void *data = nullptr;
 
-    App::VulkanCheck(vmaMapMemory(m_allocator, alloction, &data), "map error");
+    App::VulkanCheck(vmaMapMemory(m_allocator.get(), alloction, &data),
+                     "map error");
 
-    std::span<std::byte> deviceBuffer(static_cast<std::byte *>(data),
-                                      deleter.m_size);
-    // data = static_cast<std::byte*>(data) + offset;
-
-    auto subSpan = deviceBuffer.subspan(offset);
-
-    std::memcpy(subSpan.data(), buffer.data(), buffer.size_bytes());
-    vmaUnmapMemory(m_allocator, alloction);
-  }
-
-  explicit VulkanMemory(VmaAllocatorCreateInfo const &createInfo) {
-
-    if (VkResult re = vmaCreateAllocator(&createInfo, &m_allocator);
-        re != VK_SUCCESS) {
-      App::ThrowException(fmt::format("create VmaAllocator Error {}", re));
+    for (auto &buffer : buffers) {
+      std::memcpy(data, buffer.data(), buffer.size_bytes());
+      auto *nextAddr = static_cast<unsigned char *>(data);
+      nextAddr += buffer.size_bytes();
+      data = nextAddr;
     }
+
+    vmaUnmapMemory(m_allocator.get(), alloction);
   }
 
-  ~VulkanMemory() {
-    if (m_allocator != nullptr) {
-      vmaDestroyAllocator(m_allocator);
-    }
+  std::vector<raii::DescriptorSet> createDescriptorSet(
+      const vk::ArrayProxyNoTemporaries<const vk::DescriptorSetLayout>
+          &setLayouts) {
+    vk::DescriptorSetAllocateInfo setAllocInfo{};
+
+    setAllocInfo.setDescriptorPool(*m_descriptorPool);
+    setAllocInfo.setSetLayouts(setLayouts);
+
+    return m_pDevice->allocateDescriptorSets(setAllocInfo);
   }
+
+  auto createDescriptorSetLayout(auto &&...args) {
+    return m_pDevice->createDescriptorSetLayout(
+        std::forward<decltype(args)>(args)...);
+  }
+  auto updateDescriptorSets(auto &&...args) {
+    return m_pDevice->updateDescriptorSets(
+        std::forward<decltype(args)>(args)...);
+  }
+
+  explicit VulkanMemory(VmaAllocatorCreateInfo const &createInfo,
+                        raii::Device *device)
+      : m_allocator(createAllocator(createInfo)), m_pDevice(device),
+        m_descriptorPool(createDescriptorPool()) {}
+
+  VulkanMemory() = default;
+
+  void clear() {
+    m_descriptorPool.clear();
+    m_allocator.reset();
+  }
+
+  struct VmaAllocatorDeleter {
+    using pointer = VmaAllocator;
+
+    void operator()(pointer allocator) noexcept {
+      if (allocator != nullptr) {
+        vmaDestroyAllocator(allocator);
+      }
+    }
+  };
+  using VmaAllocatorHandle = std::unique_ptr<VmaAllocator, VmaAllocatorDeleter>;
 
 private:
-  VmaAllocator m_allocator = {};
+  VmaAllocatorHandle m_allocator{nullptr};
+
+  raii::Device *m_pDevice;
+
+  raii::DescriptorPool m_descriptorPool{nullptr};
+
+  raii::DescriptorPool createDescriptorPool() {
+
+    auto poolSizes = std::to_array<vk::DescriptorPoolSize>(
+        {{vk::DescriptorType::eUniformBuffer, 10},
+         {vk::DescriptorType::eUniformBufferDynamic, 10},
+         {vk::DescriptorType::eStorageBuffer, 10}});
+    vk::DescriptorPoolCreateInfo poolInfo{};
+    poolInfo.setPoolSizes(poolSizes);
+    poolInfo.setMaxSets(10);
+    poolInfo.setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
+    auto pool = m_pDevice->createDescriptorPool(poolInfo);
+    return pool;
+  }
+
+  static VmaAllocatorHandle
+  createAllocator(VmaAllocatorCreateInfo const &info) {
+    VmaAllocator allocator = nullptr;
+
+    auto result = vmaCreateAllocator(&info, &allocator);
+    VulkanCheck(result, "create allocator error");
+
+    return VmaAllocatorHandle(allocator);
+  }
 };
 
 // 资源管理职责负责加载各种资源,管理各种资源。
@@ -361,8 +495,8 @@ public:
   tinygltf::Model &getScene(const std::string &sceneKey) {
     if (m_modelMap.contains(sceneKey)) {
       return m_modelMap[sceneKey];
-    }else{
-      m_modelMap.insert({sceneKey,loadScene(sceneKey)});
+    } else {
+      m_modelMap.insert({sceneKey, loadScene(sceneKey)});
       return m_modelMap[sceneKey];
     }
   }
@@ -425,14 +559,15 @@ vk::ImageViewCreateInfo getImageViewCreateInfo(vk::Format format,
                                                vk::Image image,
                                                vk::ImageAspectFlags aspect);
 
-vk::DescriptorSetLayoutBinding
-getDescriptorSetLayoutBinding(vk::DescriptorType type,
-                              vk::ShaderStageFlags stageFlag, uint32_t binding);
+// vk::DescriptorSetLayoutBinding
+// getDescriptorSetLayoutBinding(vk::DescriptorType type,
+//                               vk::ShaderStageFlags stageFlag, uint32_t
+//                               binding);
 
-vk::WriteDescriptorSet getWriteDescriptorSet(
-    vk::DescriptorType type, vk::DescriptorSet dstSet,
-    vk::ArrayProxyNoTemporaries<vk::DescriptorBufferInfo> bufferInfos,
-    uint32_t binding);
+// vk::WriteDescriptorSet getWriteDescriptorSet(
+//     vk::DescriptorType type, vk::DescriptorSet dstSet,
+//     vk::ArrayProxyNoTemporaries<vk::DescriptorBufferInfo> bufferInfos,
+//     uint32_t binding);
 } // namespace VulkanInitializer
 
 } // namespace App
