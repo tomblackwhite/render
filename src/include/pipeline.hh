@@ -22,6 +22,12 @@ public:
   };
   raii::Pipeline createPipeline(GraphicsPipelineCreateInfo const &info);
 
+  raii::PipelineLayout createPipelineLayout(const vk::PipelineLayoutCreateInfo &info){
+    return m_pDevice->createPipelineLayout(info);
+  }
+
+
+
   raii::ShaderModule createShaderModule(const std::span<unsigned char> code);
 
   explicit PipelineFactory(raii::Device *device, vk::RenderPass renderPass,

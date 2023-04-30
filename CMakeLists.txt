@@ -2,7 +2,7 @@
 
 cmake_minimum_required(VERSION "3.20" )
 
-project(render VERSION 0.0.0 LANGUAGES CXX)
+project(render VERSION 0.0.1 LANGUAGES CXX)
 
 #set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_BUILD_TYPE "Debug")

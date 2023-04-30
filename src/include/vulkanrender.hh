@@ -63,29 +63,6 @@ struct CommandBufferDeleter {
 using CommandBufferPointer =
     std::unique_ptr<raii::CommandBuffer, CommandBufferDeleter>;
 
-class Name {
-public:
-  //! Default constructor
-  Name();
-
-  //! Copy constructor
-  Name(const Name &other);
-
-  //! Move constructor
-  Name(Name &&other) noexcept;
-
-  //! Destructor
-  virtual ~Name() noexcept;
-
-  //! Copy assignment operator
-  Name &operator=(const Name &other);
-
-  //! Move assignment operator
-  Name &operator=(Name &&other) noexcept;
-
-protected:
-private:
-};
 
 class VulkanRender {
 public:
@@ -96,7 +73,7 @@ public:
         m_appVersion(appVersion), m_engineName(std::move(engineName)),
         m_engineVersion(engineVersion) {}
 
-  VulkanRender(VulkanRender &&) = default;
+  VulkanRender(VulkanRender &&) noexcept =default;
   VulkanRender(VulkanRender const &) = delete;
   VulkanRender &operator=(const VulkanRender &other) = delete;
   VulkanRender &operator=(VulkanRender &&other) = delete;
@@ -243,7 +220,7 @@ private:
   std::string m_engineName;
   uint32_t m_engineVersion;
 
-  uint32_t m_vulkanApiVersion = VK_VERSION_1_3;
+  uint32_t m_vulkanApiVersion = VK_API_VERSION_1_3;
 
   // shader path
   const std::string m_programRootPath;

@@ -5,13 +5,15 @@ Application::Application()
       m_vulkanRender(createRender(
           Application::GetBasePath() + "/..", m_windowSize,
           m_window, m_appName, m_appVersion, m_engineName, m_engineVersion)),
-      m_manager(m_vulkanRender.getVulkanMemory()) {
+      m_manager(m_vulkanRender.getVulkanMemory(),m_vulkanRender.getPipelineFactory(),Application::GetBasePath()+"/..") {
   onInit();
+
 }
 
 Application::~Application() { onCleanup(); }
 
 int Application::onExecute() {
+
   SDL_Event event;
 
   while (m_running) {
@@ -83,7 +85,7 @@ VulkanRender Application::createRender(const string &path, App::Extent2D size,
   }
   vulkanRender.initOthers(surface);
 
-  return vulkanRender;
+  return std::move(vulkanRender);
 }
 
 SDL_Window *Application::createWindow(App::Extent2D size) {

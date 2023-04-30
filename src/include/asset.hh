@@ -266,7 +266,6 @@ struct VertexBuffer {
   std::vector<VulkanBufferHandle> buffers;
   VertexInputDescription inputDescription;
 };
-
 class VulkanMemory {
 public: // Inteface
   [[nodiscard]] VulkanBufferHandle
@@ -306,29 +305,14 @@ public: // Inteface
         image, VmaDeleter<VkImage>{m_allocator.get(), allocation});
   }
 
-  // uploadMesh 后续可以改成模板
-  // 创建device memory 同时提交到device memory
-  // void uploadMesh(Mesh &mesh) {
-
-  //   std::span buffer(mesh.vertices);
-  //   vk::BufferCreateInfo bufferInfo = {};
-  //   bufferInfo.setSize(buffer.size_bytes());
-  //   bufferInfo.setUsage(vk::BufferUsageFlagBits::eVertexBuffer);
-  //   VmaAllocationCreateInfo allocationInfo = {};
-  //   allocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-  //   allocationInfo.flags = VmaAllocationCreateFlagBits::
-  //       VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-
-  //   mesh.vertexBuffer = createBuffer(
-  //       static_cast<VkBufferCreateInfo &>(bufferInfo), allocationInfo);
-  //   // upload(mesh.vertexBuffer, buffer);
-  // }
-
   // 现在假设所有mesh中的indexType全部为16位。如果不是会不加载。打log;
-  template <ranges::view T>
+  template <ranges::input_range T>
     requires std::same_as<ranges::range_value_t<T>, Mesh>
-  VertexBuffer uploadMeshes(T meshes) {
+  VertexBuffer uploadMeshes(T&& meshes) {
 
+    if(ranges::size(meshes)==0){
+      return VertexBuffer{};
+    }
     // 用于绑定vertexBuffer
     std::vector<Mesh::IndexSpanType> indices;
     vk::DeviceSize indexBufferSize = 0;
@@ -355,9 +339,10 @@ public: // Inteface
     vertexBuffer.inputDescription = Mesh::SubMesh::getVertexDescription();
     // 创建buffer
     VmaAllocationCreateInfo allocationInfo = {};
-    allocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    allocationInfo.usage = VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
     allocationInfo.flags = VmaAllocationCreateFlagBits::
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+
     vk::BufferCreateInfo indexBufferInfo = {
         .size = indexBufferSize,
         .usage = vk::BufferUsageFlagBits::eIndexBuffer};
@@ -436,6 +421,9 @@ public: // Inteface
         m_descriptorPool(createDescriptorPool()) {}
 
   VulkanMemory() = default;
+  VulkanMemory(VulkanMemory &&) noexcept = default;
+  VulkanMemory &operator=(VulkanMemory &&) noexcept = default;
+  ~VulkanMemory() noexcept { clear(); }
 
   void clear() {
     m_descriptorPool.clear();
@@ -456,7 +444,7 @@ public: // Inteface
 private:
   VmaAllocatorHandle m_allocator{nullptr};
 
-  raii::Device *m_pDevice;
+  raii::Device *m_pDevice{nullptr};
 
   raii::DescriptorPool m_descriptorPool{nullptr};
 

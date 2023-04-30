@@ -3,6 +3,11 @@
 using std::runtime_error;
 
 VulkanRender::~VulkanRender() noexcept { cleanup(); }
+
+// VulkanRender::VulkanRender(VulkanRender && vulkanRender) noexcept
+//   :m_context(vulkanRender.m_context)
+// {}
+
 void VulkanRender::initOthers(const VkSurfaceKHR &surface) {
   initVulkan(surface);
   initMemory();
@@ -532,7 +537,7 @@ void VulkanRender::cleanup() {
   // m_commandPools.clear();
   // m_swapChainFramebuffers.clear();
   m_frames.clear();
-  m_vulkanMemory.clear();
+  // m_vulkanMemory.clear();
   m_renderTarget.reset();
   m_pipelineFactory.reset();
   // m_renderPass.clear();
@@ -542,6 +547,8 @@ void VulkanRender::cleanup() {
   // m_device.clear();
   // m_debugMessenger.clear();
 }
+
+
 
 // void VulkanRender::loadMeshs() {
 //   m_mesh.vertices.resize(6);

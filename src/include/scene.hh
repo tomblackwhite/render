@@ -43,11 +43,13 @@ struct Scene {
   NodeShowMap showMap;
   VertexBuffer vertexBuffer;
 
+  std::vector<vk::DescriptorSetLayoutBinding> bindings = getBindings();
   VulkanBufferHandle cameraBuffer{nullptr};
   VulkanBufferHandle objectBuffer{nullptr};
   raii::DescriptorSetLayout sceneSetLayout{nullptr};
   raii::DescriptorSet sceneSet{nullptr};
 
+  std::vector<vk::PushConstantRange> pushConstants = getPushConstantranges();
   raii::PipelineLayout pipelineLayout{nullptr};
 
   raii::Pipeline pipeline{nullptr};
@@ -55,31 +57,27 @@ struct Scene {
   uint32_t cameraBinding = 0;
   uint32_t objectBinding = 1;
 
-  std::filesystem::path vertShaderPath;
-  std::filesystem::path fragShaderPath;
+  std::filesystem::path vertShaderPath = "shader/shader.vert.spv";
+  std::filesystem::path fragShaderPath = "shader/shader.frag.spv";
 
-  static vk::DescriptorSetLayoutCreateInfo getSceneSetLayoutInfo() {
+  vk::DescriptorSetLayoutCreateInfo getSceneSetLayoutInfo() {
 
-    // 设置camera绑定关系
-    vk::DescriptorSetLayoutBinding cameraBinding{};
-    cameraBinding.setBinding(0);
-    cameraBinding.setDescriptorCount(1);
-    cameraBinding.setStageFlags(vk::ShaderStageFlagBits::eVertex);
-    cameraBinding.setDescriptorType(vk::DescriptorType::eUniformBuffer);
-
-    vk::DescriptorSetLayoutBinding objectBinding{};
-    cameraBinding.setBinding(1);
-    cameraBinding.setDescriptorCount(1);
-    cameraBinding.setStageFlags(vk::ShaderStageFlagBits::eVertex);
-    cameraBinding.setDescriptorType(vk::DescriptorType::eUniformBuffer);
-
-    std::array bindings{cameraBinding, objectBinding};
+    // std::array bindings;
 
     vk::DescriptorSetLayoutCreateInfo setInfo{};
     setInfo.setBindings(bindings);
+
     return setInfo;
   }
 
+  vk::PipelineLayoutCreateInfo getPipelineLayoutInfo() {
+    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
+
+    pipelineLayoutInfo.setPushConstantRanges(pushConstants);
+    pipelineLayoutInfo.setSetLayouts(*sceneSetLayout);
+
+    return pipelineLayoutInfo;
+  }
   raii::Pipeline createScenePipeline(PipelineFactory &factory,
                                      fs::path const &homePath) const {
 
@@ -110,19 +108,6 @@ struct Scene {
     info.m_inputAssembly =
         VulkanInitializer::getPipelineInputAssemblyStateCreateInfo();
 
-    // let view port height negative , let ndc to left hand ,y is up
-
-    // auto height = m_renderTarget->m_swapChainExtent.height;
-    // auto width = m_renderTarget->m_swapChainExtent.width;
-    // info.m_viewPort = vk::Viewport{.x = 0.0F,
-    //                                           .y = 0.0F + (float)height,
-    //                                           .width = (float)width,
-    //                                           .height = -((float)height),
-    //                                           .minDepth = 0.0F,
-    //                                           .maxDepth = 1.0F};
-    // info.m_scissor = vk::Rect2D{
-    //     .offset = {0, 0}, .extent = m_renderTarget->m_swapChainExtent};
-
     info.m_rasterizer =
         VulkanInitializer::getPipelineRasterizationStateCreateInfo();
 
@@ -140,17 +125,6 @@ struct Scene {
         vk::DynamicState::eLineWidth,
     };
 
-    auto pipelineLayoutInfo = VulkanInitializer::getPipelineLayoutCreateInfo();
-
-    vk::PushConstantRange pushConstant = {};
-    pushConstant.setOffset(0);
-    pushConstant.setSize(sizeof(App::MeshPushConstants));
-    pushConstant.setStageFlags(vk::ShaderStageFlagBits::eVertex);
-
-    pipelineLayoutInfo.setPushConstantRanges(pushConstant);
-    pipelineLayoutInfo.setSetLayouts(*sceneSetLayout);
-
-    // pipelineLayoutInfo.setSetLayouts(*m_descriptorSetLayout);
 
     info.m_pipelineLayout = *pipelineLayout;
 
@@ -163,12 +137,19 @@ struct Scene {
     commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
                                      *pipelineLayout, 0, *sceneSet, {});
 
+
+
     // bind vertex
     auto vertexBufferView =
         views::all(vertexBuffer.buffers) |
         views::transform([](auto &elem) { return elem.get(); });
+
     std::vector<vk::Buffer> vertexBufferTemp(vertexBufferView.begin(),
                                              vertexBufferView.end());
+
+    if(vertexBufferTemp.empty()){
+      return;
+    }
     std::vector<vk::DeviceSize> vertexOffsets(vertexBufferTemp.size(), 0);
     commandBuffer.bindVertexBuffers(0, vertexBufferTemp, vertexOffsets);
 
@@ -202,6 +183,33 @@ struct Scene {
       currentMeshIndex += 1;
     }
   }
+
+private:
+  static std::vector<vk::DescriptorSetLayoutBinding> getBindings() {
+
+    // 设置camera绑定关系
+    vk::DescriptorSetLayoutBinding cameraBinding{};
+    cameraBinding.setBinding(0);
+    cameraBinding.setDescriptorCount(1);
+    cameraBinding.setStageFlags(vk::ShaderStageFlagBits::eVertex);
+    cameraBinding.setDescriptorType(vk::DescriptorType::eUniformBuffer);
+
+    vk::DescriptorSetLayoutBinding objectBinding{};
+    objectBinding.setBinding(1);
+    objectBinding.setDescriptorCount(1);
+    objectBinding.setStageFlags(vk::ShaderStageFlagBits::eVertex);
+    objectBinding.setDescriptorType(vk::DescriptorType::eUniformBuffer);
+    return {cameraBinding, objectBinding};
+  }
+
+  static std::vector<vk::PushConstantRange> getPushConstantranges() {
+
+    vk::PushConstantRange pushConstant = {};
+    pushConstant.setOffset(0);
+    pushConstant.setSize(sizeof(App::MeshPushConstants));
+    pushConstant.setStageFlags(vk::ShaderStageFlagBits::eVertex);
+    return {pushConstant};
+  }
 };
 
 // 分离创建职责，区分素材管理和场景创建原则
@@ -211,7 +219,8 @@ class SceneFactory;
 class SceneManager {
 
 public:
-  explicit SceneManager(VulkanMemory *memory);
+  explicit SceneManager(VulkanMemory *memory, PipelineFactory *factory,
+                        const std::string &homePath);
   // 初始化游戏流程脚本之类的,绑定各种内容。
   void init();
   // 每帧更新
@@ -249,6 +258,8 @@ private:
   AssetManager m_assetManager = AssetManager::instance();
 
   VulkanMemory *m_vulkanMemory;
+  PipelineFactory *m_pipelineFactory;
+  std::filesystem::path m_homePath;
 
   std::unique_ptr<SceneFactory> m_factory;
 };

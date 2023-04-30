@@ -5,7 +5,17 @@ using std::holds_alternative;
 using std::index_sequence;
 using std::initializer_list;
 
-SceneManager::SceneManager(VulkanMemory *memory) : m_vulkanMemory(memory) {
+SceneManager::SceneManager(VulkanMemory *memory, PipelineFactory *factory,
+                           const std::string &homePath)
+    : m_vulkanMemory(memory), m_pipelineFactory(factory), m_homePath(homePath) {
+
+  //创建pipeline
+  m_scene.sceneSetLayout = m_vulkanMemory->createDescriptorSetLayout(
+      m_scene.getSceneSetLayoutInfo());
+  m_scene.pipelineLayout =
+      m_pipelineFactory->createPipelineLayout(m_scene.getPipelineLayoutInfo());
+  m_scene.pipeline=m_scene.createScenePipeline(*m_pipelineFactory, m_homePath);
+
 
   // 可以放在scene构造函数里，现在相当于二段初始化。
   //  初始化scene 成员。创建cameraBuffer;
@@ -20,8 +30,6 @@ SceneManager::SceneManager(VulkanMemory *memory) : m_vulkanMemory(memory) {
   m_scene.cameraBuffer =
       m_vulkanMemory->createBuffer(bufferInfo, allocationInfo);
 
-  m_scene.sceneSetLayout = m_vulkanMemory->createDescriptorSetLayout(
-      m_scene.getSceneSetLayoutInfo());
 
   auto sets = m_vulkanMemory->createDescriptorSet(*m_scene.sceneSetLayout);
   m_scene.sceneSet = std::move(sets[0]);
@@ -40,6 +48,7 @@ SceneManager::SceneManager(VulkanMemory *memory) : m_vulkanMemory(memory) {
 
   m_vulkanMemory->updateDescriptorSets(
       writeSet, initializer_list<vk::CopyDescriptorSet>{});
+
 }
 
 void SceneManager::init() {
@@ -112,6 +121,10 @@ void SceneManager::showScene(const string &scene) {
       views::all(m_scene.showMap) |
       views::transform([](auto &elem) -> Mesh & { return elem.second->mesh; });
 
+#ifdef DEBUG
+  // debug info
+  auto meshCount = meshsView.size();
+#endif
   // 上传到gpu
   m_scene.vertexBuffer = m_vulkanMemory->uploadMeshes(meshsView);
 
@@ -149,8 +162,7 @@ void SceneManager::visitNode(const string &key,
 }
 
 void SceneFactory::createScene(AssetManager &assetManager,
-                               const std::string &sceneKey,
-                               NodeMap &map,
+                               const std::string &sceneKey, NodeMap &map,
                                NodeTree &tree) {
 
   auto &model = assetManager.getScene(sceneKey);
@@ -186,6 +198,7 @@ SceneFactory::createNode(tinygltf::Node const &node,
   } else if (node.camera != -1) {
     auto camera =
         std::make_unique<Camera>(createCamera(model.cameras[node.camera]));
+    result = std::move(camera);
 
   } else {
     result = std::make_unique<Node>();
@@ -221,14 +234,12 @@ SceneFactory::createNode(tinygltf::Node const &node,
 }
 
 void SceneFactory::createNodeTree(const tinygltf::Node &node,
-                                  const tinygltf::Model &model,
-                                  NodeMap &map,
+                                  const tinygltf::Model &model, NodeMap &map,
                                   NodeTree &tree) {
   if (node.children.empty()) {
     return;
   }
-  NodeTree::value_type keyValue{
-      node.name, NodeTree::mapped_type{}};
+  NodeTree::value_type keyValue{node.name, NodeTree::mapped_type{}};
   tree.insert(keyValue);
 
   auto &value = keyValue.second;
