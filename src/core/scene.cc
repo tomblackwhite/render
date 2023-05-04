@@ -1,4 +1,5 @@
 #include "scene.hh"
+#include <vector>
 namespace App {
 using glm::vec3;
 using std::holds_alternative;
@@ -7,15 +8,16 @@ using std::initializer_list;
 
 SceneManager::SceneManager(VulkanMemory *memory, PipelineFactory *factory,
                            const std::string &homePath)
-    : m_vulkanMemory(memory), m_pipelineFactory(factory), m_homePath(homePath) {
+    : m_vulkanMemory(memory), m_pipelineFactory(factory), m_homePath(homePath),
+      m_assetManager(AssetManager::instance(homePath)) {
 
-  //创建pipeline
+  // 创建pipeline
   m_scene.sceneSetLayout = m_vulkanMemory->createDescriptorSetLayout(
       m_scene.getSceneSetLayoutInfo());
   m_scene.pipelineLayout =
       m_pipelineFactory->createPipelineLayout(m_scene.getPipelineLayoutInfo());
-  m_scene.pipeline=m_scene.createScenePipeline(*m_pipelineFactory, m_homePath);
-
+  m_scene.pipeline =
+      m_scene.createScenePipeline(*m_pipelineFactory, m_homePath);
 
   // 可以放在scene构造函数里，现在相当于二段初始化。
   //  初始化scene 成员。创建cameraBuffer;
@@ -29,7 +31,6 @@ SceneManager::SceneManager(VulkanMemory *memory, PipelineFactory *factory,
       VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
   m_scene.cameraBuffer =
       m_vulkanMemory->createBuffer(bufferInfo, allocationInfo);
-
 
   auto sets = m_vulkanMemory->createDescriptorSet(*m_scene.sceneSetLayout);
   m_scene.sceneSet = std::move(sets[0]);
@@ -48,16 +49,18 @@ SceneManager::SceneManager(VulkanMemory *memory, PipelineFactory *factory,
 
   m_vulkanMemory->updateDescriptorSets(
       writeSet, initializer_list<vk::CopyDescriptorSet>{});
-
 }
 
 void SceneManager::init() {
 
   loadScene(m_mainScene);
+  // 绑定脚本
+  bindScript();
 
+  auto &map = m_nodeContainer.map;
   // 初始化脚本
-  ranges::for_each(m_map, [](auto const &keyValue) {
-    auto &[key, node] = keyValue;
+  ranges::for_each(map, [](auto const &keyValue) {
+    auto *node = keyValue.second.get();
 
     auto *pscript = node->script();
     if (pscript) {
@@ -71,8 +74,8 @@ void SceneManager::init() {
 
 void SceneManager::update() {
 
-  ranges::for_each(m_map, [](auto const &keyValue) {
-    auto &[key, node] = keyValue;
+  ranges::for_each(m_nodeContainer.map, [](auto const &keyValue) {
+    auto *node = keyValue.second.get();
     auto *pscript = node->script();
     if (pscript) {
       pscript->update();
@@ -82,9 +85,9 @@ void SceneManager::update() {
 
 void SceneManager::physicalUpdate() {
 
-  ranges::for_each(m_map, [](auto const &keyValue) {
-    auto &[key, node] = keyValue;
-
+  auto &map = m_nodeContainer.map;
+  ranges::for_each(map, [](auto const &keyValue) {
+    auto *node = keyValue.second.get();
     auto *pscript = node->script();
     if (pscript) {
       pscript->physicalUpdate();
@@ -93,7 +96,17 @@ void SceneManager::physicalUpdate() {
 }
 
 void SceneManager::loadScene(const string &scene) {
-  m_factory->createScene(m_assetManager, scene, m_map, m_tree);
+  m_factory->createScene(m_assetManager, scene, &m_nodeFactory,
+                         &m_nodeContainer);
+}
+
+void SceneManager::bindScript() {
+  auto *rootNode = m_nodeContainer.map[m_mainScene].get();
+
+  if (rootNode != nullptr) {
+    auto rootScript = std::make_unique<RootScript>(rootNode, &m_nodeFactory);
+    rootNode->setScript(std::unique_ptr<Script>(rootScript.release()));
+  }
 }
 
 void SceneManager::showScene(const string &scene) {
@@ -105,11 +118,26 @@ void SceneManager::showScene(const string &scene) {
     if ((pNode != nullptr) && pNode->visible()) {
       if (auto *mesh = dynamic_cast<MeshInstance *>(pNode); mesh) {
 
+        mesh->modelMatrix = this->getTransform(mesh);
         showMap.insert_or_assign(mesh->name, mesh);
       }
       if (auto *camera = dynamic_cast<Camera *>(pNode); camera) {
         scene.camera.proj = camera->projection;
-        scene.camera.view = this->getTransform(camera);
+        glm::vec3 scale;
+        glm::quat rotate;
+        glm::vec3 translation;
+        glm::vec3 skew;
+        glm::vec4 per;
+        auto transform = this->getTransform(camera);
+        glm::decompose(transform, scale, rotate, translation, skew, per);
+
+        //
+        auto view = glm::transpose(glm::toMat4(rotate)) *
+                    glm::translate(glm::mat4(1), -translation);
+        ;
+
+        scene.camera.view = view;
+        camera->view = view;
         scene.camera.viewProj = scene.camera.proj * scene.camera.view;
       }
     }
@@ -134,11 +162,14 @@ void SceneManager::showScene(const string &scene) {
 }
 
 glm::mat4 SceneManager::getTransform(Node *node) {
+
+  auto &map = m_nodeContainer.map;
+
   glm::mat4 trans{node->transform()};
 
   auto parentKey = node->parent();
   for (; !parentKey.empty();) {
-    if (auto iter = m_map.find(parentKey); iter != m_map.end()) {
+    if (auto iter = map.find(parentKey); iter != map.end()) {
       trans = iter->second->transform() * trans;
       parentKey = iter->second->parent();
     } else {
@@ -152,24 +183,29 @@ glm::mat4 SceneManager::getTransform(Node *node) {
 
 void SceneManager::visitNode(const string &key,
                              std::function<void(Node *)> const &visitor) {
-  auto children = m_tree[key];
+  auto &map = m_nodeContainer.map;
+  auto &children = map[key]->children();
 
   for (auto &elemKey : children) {
-    auto &elem = m_map[elemKey];
+    auto &elem = map[elemKey];
     visitor(elem.get());
     visitNode(elemKey, visitor);
   }
 }
 
 void SceneFactory::createScene(AssetManager &assetManager,
-                               const std::string &sceneKey, NodeMap &map,
-                               NodeTree &tree) {
+                               const std::string &sceneKey,
+                               NodeFactory *nodeFactory,
+                               NodeContainer *container) {
+
+  auto &map = container->map;
+  auto &tree = container->tree;
 
   auto &model = assetManager.getScene(sceneKey);
   auto &scene = model.scenes[model.defaultScene];
 
   for (auto &node : model.nodes) {
-    map.insert({node.name, createNode(node, model, model.buffers)});
+    createNode(node, model, model.buffers, nodeFactory);
   }
   std::vector<std::string> sceneNodes;
   // 递归构建Node Tree
@@ -179,32 +215,32 @@ void SceneFactory::createScene(AssetManager &assetManager,
     createNodeTree(node, model, map, tree);
   }
 
+  // 创建rootNode
+  auto *rootNode = nodeFactory->createNode<Node>(sceneKey);
+  rootNode->childern() = std::move(sceneNodes);
   // sceneKey as root of scene nodes
-  tree.insert({sceneKey, std::move(sceneNodes)});
 }
 
-std::unique_ptr<Node>
-SceneFactory::createNode(tinygltf::Node const &node,
-                         tinygltf::Model const &model,
-                         std::vector<tinygltf::Buffer> &buffers) {
+void SceneFactory::createNode(tinygltf::Node const &node,
+                              tinygltf::Model const &model,
+                              std::vector<tinygltf::Buffer> &buffers,
+                              NodeFactory *nodeFactory) {
 
-  auto result = std::unique_ptr<Node>(nullptr);
+  Node *result = nullptr;
 
   // 创建mesh
   if (node.mesh != -1) {
-    auto meshIns = std::make_unique<MeshInstance>();
+
+    auto *meshIns = nodeFactory->createNode<MeshInstance>(node.name);
     meshIns->mesh = createMesh(node.mesh, model, buffers);
-    result = std::move(meshIns);
   } else if (node.camera != -1) {
-    auto camera =
-        std::make_unique<Camera>(createCamera(model.cameras[node.camera]));
+    auto *camera =
+        createCamera(model.cameras[node.camera], node.name, nodeFactory);
     result = std::move(camera);
 
   } else {
-    result = std::make_unique<Node>();
+    result = nodeFactory->createNode<Node>(node.name);
   }
-
-  result->name = node.name;
 
   if (!node.scale.empty()) {
     auto scale =
@@ -229,8 +265,6 @@ SceneFactory::createNode(tinygltf::Node const &node,
         castToGLMType<glm::mat4>(node.matrix, std::make_index_sequence<16>{});
     result->setTransform(matrix);
   }
-
-  return result;
 }
 
 void SceneFactory::createNodeTree(const tinygltf::Node &node,
@@ -239,11 +273,10 @@ void SceneFactory::createNodeTree(const tinygltf::Node &node,
   if (node.children.empty()) {
     return;
   }
-  NodeTree::value_type keyValue{node.name, NodeTree::mapped_type{}};
-  tree.insert(keyValue);
+  // NodeTree::value_type keyValue{node.name, NodeTree::mapped_type{}};
+  // tree.insert(keyValue);
 
-  auto &value = keyValue.second;
-
+  std::vector<std::string> sceneNodes;
   // 构建场景路径。
   auto &currentNode = map[node.name];
 
@@ -255,7 +288,7 @@ void SceneFactory::createNodeTree(const tinygltf::Node &node,
     childrenNode->parent() = node.name;
 
     currentNode->childern().push_back(nodeKey);
-    value.push_back(model.nodes[index].name);
+    sceneNodes.push_back(model.nodes[index].name);
     createNodeTree(model.nodes[index], model, map, tree);
   }
 }
@@ -329,25 +362,27 @@ Mesh SceneFactory::createMesh(int meshIndex, const tinygltf::Model &model,
   return result;
 }
 
-Camera SceneFactory::createCamera(const tinygltf::Camera &camera) {
-  Camera result;
+Camera *SceneFactory::createCamera(const tinygltf::Camera &camera,
+                                   const std::string &name,
+                                   NodeFactory *nodeFactory) {
+  auto *result = nodeFactory->createNode<Camera>(name);
   if (camera.type == "perspective") {
     auto const &perpective = camera.perspective;
 
     // finite
     if (perpective.zfar != 0.0) {
 
-      result.projection =
+      result->projection =
           glm::perspective(perpective.yfov, perpective.aspectRatio,
                            perpective.znear, perpective.zfar);
     } else {
-      result.projection = glm::infinitePerspective(
+      result->projection = glm::infinitePerspective(
           perpective.yfov, perpective.aspectRatio, perpective.znear);
     }
   } else if (camera.type == "orthographic") {
     auto const &orth = camera.orthographic;
-    result.projection = glm::ortho(0.0, 2 * orth.xmag, 0.0, 2 * orth.ymag,
-                                   orth.znear, orth.zfar);
+    result->projection = glm::ortho(0.0, 2 * orth.xmag, 0.0, 2 * orth.ymag,
+                                    orth.znear, orth.zfar);
   } else {
     // do nothing
     spdlog::warn("camera don't have type");

@@ -24,12 +24,33 @@ add_library(
   "./core/render_target.cc"
   "./core/pipeline.cc"
   "./core/scene.cc"
+)
+
+add_library(
+  node
   "./core/node.cc"
 )
 
+add_library(
+  script_interface
+  "./script/script.cc"
+)
+
+add_library(
+  script
+  "./script/script_implement.cc"
+)
+
+target_link_libraries(script PRIVATE node PUBLIC script_interface)
+
+target_include_directories(script_interface PUBLIC "./include")
+target_link_libraries(
+  node PRIVATE script PUBLIC
+  asset_manager tool
+)
 target_link_libraries(
   core_other PUBLIC
-  asset_manager tool
+  node script script_interface
 )
 
 target_include_directories(core_other PUBLIC "./include")
@@ -92,7 +113,7 @@ add_custom_target(
 )
 add_custom_command(
   OUTPUT spirv
-  COMMAND ${Vulkan_GLSLC_EXECUTABLE} "-O" "-c"  "${shader_files}"
+  COMMAND ${Vulkan_GLSLC_EXECUTABLE} "-O" "-c" "${shader_files}"
   DEPENDS create_shader_dir "${shader_files}"
   WORKING_DIRECTORY "${SHADER_BIN_PATH}"
   VERBATIM

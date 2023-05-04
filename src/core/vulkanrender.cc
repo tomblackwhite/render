@@ -36,16 +36,17 @@ void VulkanRender::initMemory() { m_vulkanMemory = createVulkanMemory(); }
 
 void VulkanRender::initPipelineFactory() {
   vk::Viewport viewPort{0.0f,
-                        static_cast<float>(m_renderSize.height),
+                        0.0f,
                         static_cast<float>(m_renderSize.width),
                         static_cast<float>(m_renderSize.height),
                         0.0f,
                         1.0f};
+  auto viewPortY = App::VulkanInitializer::getViewPortInverseY(viewPort);
 
   vk::Rect2D scissor{{0, 0}, m_renderSize};
   m_pipelineFactory = std::make_unique<App::PipelineFactory>(
       m_pDevice.get(), *m_renderTarget->m_renderPass,
-      App::VulkanInitializer::getViewPortInverseY(viewPort), scissor);
+      viewPortY, scissor);
 }
 
 void VulkanRender::initFrameDatas() {

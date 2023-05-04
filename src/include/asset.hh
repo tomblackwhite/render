@@ -308,9 +308,9 @@ public: // Inteface
   // 现在假设所有mesh中的indexType全部为16位。如果不是会不加载。打log;
   template <ranges::input_range T>
     requires std::same_as<ranges::range_value_t<T>, Mesh>
-  VertexBuffer uploadMeshes(T&& meshes) {
+  VertexBuffer uploadMeshes(T &&meshes) {
 
-    if(ranges::size(meshes)==0){
+    if (ranges::size(meshes) == 0) {
       return VertexBuffer{};
     }
     // 用于绑定vertexBuffer
@@ -354,9 +354,9 @@ public: // Inteface
     vk::BufferCreateInfo positionBufferInfo = {
         .size = positionBufferSize,
         .usage = vk::BufferUsageFlagBits::eVertexBuffer};
-    auto positionBuffer = createBuffer(indexBufferInfo, allocationInfo);
+    auto positionBuffer = createBuffer(positionBufferInfo, allocationInfo);
     upload(positionBuffer, ranges::views::all(positions));
-    vertexBuffer.buffers.push_back(std::move(indexBuffer));
+    vertexBuffer.buffers.push_back(std::move(positionBuffer));
 
     vk::BufferCreateInfo normalBufferInfo = {
         .size = positionBufferSize,
@@ -490,8 +490,8 @@ public:
   }
 
   // 单例
-  static AssetManager &instance() {
-    static AssetManager manager;
+  static AssetManager &instance(const fs::path &homePath) {
+    static AssetManager manager(homePath);
     return manager;
   }
 
@@ -500,12 +500,14 @@ public:
   // }
 
 private:
+  explicit AssetManager(fs::path homePath) : m_homePath(std::move(homePath)) {}
+
   tinygltf::Model loadScene(const std::string &sceneKey) {
 
     using std::filesystem::path;
     std::filesystem::path basePath{"asset/"};
 
-    auto scenePath = basePath / sceneKey;
+    auto scenePath = m_homePath / basePath / sceneKey;
 
     tinygltf::Model model;
     std::string err;
@@ -521,6 +523,7 @@ private:
     return model;
   }
 
+  fs::path m_homePath;
   tinygltf::TinyGLTF m_loader;
   // std::vector<Buffer> m_buffers;
   std::unordered_map<key, tinygltf::Model> m_modelMap;

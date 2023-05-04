@@ -2,6 +2,7 @@
 #include "asset.hh"
 #include "gltf_type.hh"
 #include "pipeline.hh"
+#include "script_implement.hh"
 #include <concepts>
 #include <utility>
 
@@ -14,10 +15,8 @@ namespace App {
 namespace views = std::ranges::views;
 namespace fs = std::filesystem;
 using key = std::string;
-using NodeMap = std::unordered_map<key, std::unique_ptr<Node>>;
 using NodeShowMap = std::unordered_map<key, MeshInstance *>;
 
-using NodeTree = std::unordered_map<key, std::vector<key>>;
 
 struct GPUCamera {
   glm::mat4 view{1};
@@ -57,8 +56,8 @@ struct Scene {
   uint32_t cameraBinding = 0;
   uint32_t objectBinding = 1;
 
-  std::filesystem::path vertShaderPath = "shader/shader.vert.spv";
-  std::filesystem::path fragShaderPath = "shader/shader.frag.spv";
+  std::filesystem::path vertShaderPath = "shader/object.vert.spv";
+  std::filesystem::path fragShaderPath = "shader/object.frag.spv";
 
   vk::DescriptorSetLayoutCreateInfo getSceneSetLayoutInfo() {
 
@@ -100,7 +99,7 @@ struct Scene {
             vk::ShaderStageFlagBits::eFragment, *fragShaderModule));
 
     // 保持生命周期
-    auto inputDescriptor = App::Vertex::getVertexDescription();
+    auto inputDescriptor = App::Mesh::SubMesh::getVertexDescription();
     info.m_vertexInputInfo =
         VulkanInitializer::getPipelineVertexInputStateCreateInfo(
             inputDescriptor);
@@ -125,7 +124,6 @@ struct Scene {
         vk::DynamicState::eLineWidth,
     };
 
-
     info.m_pipelineLayout = *pipelineLayout;
 
     return factory.createPipeline(info);
@@ -133,11 +131,14 @@ struct Scene {
 
   void recordCommand(vk::CommandBuffer commandBuffer,
                      NodeShowMap const &showMap) const {
+    recordCommandDetail(commandBuffer, showMap);
+    // recordCommandTest(commandBuffer, showMap);
+  }
+  void recordCommandDetail(vk::CommandBuffer commandBuffer,
+                     NodeShowMap const &showMap) const {
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *pipeline);
     commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
                                      *pipelineLayout, 0, *sceneSet, {});
-
-
 
     // bind vertex
     auto vertexBufferView =
@@ -147,11 +148,15 @@ struct Scene {
     std::vector<vk::Buffer> vertexBufferTemp(vertexBufferView.begin(),
                                              vertexBufferView.end());
 
-    if(vertexBufferTemp.empty()){
+    if (vertexBufferTemp.empty()) {
       return;
     }
     std::vector<vk::DeviceSize> vertexOffsets(vertexBufferTemp.size(), 0);
-    commandBuffer.bindVertexBuffers(0, vertexBufferTemp, vertexOffsets);
+    commandBuffer.bindVertexBuffers(
+        0,
+        std::vector<vk::Buffer>(vertexBufferView.begin(),
+                                vertexBufferView.end()),
+        std::vector<vk::DeviceSize>(vertexBufferTemp.size(), 0));
 
     // bind vertex index
     commandBuffer.bindIndexBuffer(vertexBuffer.indexBuffer.get(), 0,
@@ -167,6 +172,8 @@ struct Scene {
 
       // first x is mesh index
       constants.data = glm::uvec4(currentMeshIndex, 0, 0, 0);
+      auto matrix= value->modelMatrix;
+      constants.renderMatrix = glm::mat4(1);
 
       // 上传object index
       commandBuffer.pushConstants<App::MeshPushConstants>(
@@ -184,6 +191,114 @@ struct Scene {
     }
   }
 
+  raii::Pipeline createScenePipelineTest(PipelineFactory &factory,
+                                     fs::path const &homePath) const {
+
+    auto vertShaderCode = readFile(homePath / vertShaderPath);
+    auto fragShaderCode = readFile(homePath / fragShaderPath);
+    auto vertShaderModule = factory.createShaderModule(vertShaderCode);
+    auto fragShaderModule = factory.createShaderModule(fragShaderCode);
+
+    using namespace App;
+
+    PipelineFactory::GraphicsPipelineCreateInfo info{};
+
+    // pipelineFactory
+    info.m_shaderStages.push_back(
+        VulkanInitializer::getPipelineShaderStageCreateInfo(
+            vk::ShaderStageFlagBits::eVertex, *vertShaderModule));
+
+    info.m_shaderStages.push_back(
+        VulkanInitializer::getPipelineShaderStageCreateInfo(
+            vk::ShaderStageFlagBits::eFragment, *fragShaderModule));
+
+    // 保持生命周期
+    auto inputDescriptor = App::Mesh::SubMesh::getVertexDescription();
+    info.m_vertexInputInfo =
+        VulkanInitializer::getPipelineVertexInputStateCreateInfo(
+            inputDescriptor);
+
+    info.m_inputAssembly =
+        VulkanInitializer::getPipelineInputAssemblyStateCreateInfo();
+
+    info.m_rasterizer =
+        VulkanInitializer::getPipelineRasterizationStateCreateInfo();
+
+    info.m_multisampling =
+        VulkanInitializer::getPipelineMultisampleStateCreateInfo();
+
+    info.m_colorBlendAttachment =
+        VulkanInitializer::getPipelineColorBlendAttachmentState();
+    info.m_depthStencilCreateInfo =
+        VulkanInitializer::getDepthStencilCreateInfo(
+            true, true, vk::CompareOp::eLessOrEqual);
+
+    std::vector<vk::DynamicState> dynamicStates = {
+        vk::DynamicState::eViewport,
+        vk::DynamicState::eLineWidth,
+    };
+
+    info.m_pipelineLayout = *pipelineLayout;
+
+    return factory.createPipeline(info);
+  }
+  void recordCommandTest(vk::CommandBuffer commandBuffer,
+                     NodeShowMap const &showMap) const {
+    commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *pipeline);
+    commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+                                     *pipelineLayout, 0, *sceneSet, {});
+
+    // bind vertex
+    auto vertexBufferView =
+        views::all(vertexBuffer.buffers) |
+        views::transform([](auto &elem) { return elem.get(); });
+
+    std::vector<vk::Buffer> vertexBufferTemp(vertexBufferView.begin(),
+                                             vertexBufferView.end());
+
+    if (vertexBufferTemp.empty()) {
+      return;
+    }
+    std::vector<vk::DeviceSize> vertexOffsets(vertexBufferTemp.size(), 0);
+    commandBuffer.bindVertexBuffers(
+        0,
+        std::vector<vk::Buffer>(vertexBufferView.begin(),
+                                vertexBufferView.end()),
+        std::vector<vk::DeviceSize>(vertexBufferTemp.size(), 0));
+
+    // bind vertex index
+    commandBuffer.bindIndexBuffer(vertexBuffer.indexBuffer.get(), 0,
+                                  vk::IndexTypeValue<App::IndexType>::value);
+
+    int32_t currentVertexOffset = 0;
+    uint32_t currentIndexOffset = 0;
+    uint32_t currentMeshIndex = 0;
+    for (auto const &[key, value] : showMap) {
+      auto &currentMesh = value->mesh;
+
+      App::MeshPushConstants constants = {};
+
+      // first x is mesh index
+      constants.data = glm::uvec4(currentMeshIndex, 0, 0, 0);
+      constants.renderMatrix = value->modelMatrix;
+
+      // 上传object index
+      commandBuffer.pushConstants<App::MeshPushConstants>(
+          *pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, constants);
+
+      // different subMesh
+      // for (auto &subMesh : currentMesh.subMeshs) {
+
+      //   commandBuffer.drawIndexed(subMesh.indices.size(), 1, currentIndexOffset,
+      //                             currentVertexOffset, 0);
+      //   currentIndexOffset += subMesh.indices.size();
+      //   currentVertexOffset += static_cast<int32_t>(subMesh.positions.size());
+      // }
+      currentMeshIndex += 1;
+    }
+
+    commandBuffer.draw(3, 1, 0, 0);
+  }
 private:
   static std::vector<vk::DescriptorSetLayoutBinding> getBindings() {
 
@@ -240,6 +355,9 @@ private:
   // 加载场景
   void loadScene(const string &scene);
 
+  // 绑定脚本
+  void bindScript();
+
   // 显示场景 只用于第一次显示
   void showScene(const string &scene);
 
@@ -251,11 +369,12 @@ private:
 
   std::string m_mainScene;
   // which data struct ?
-  NodeMap m_map{};
-  // std::vector<std::unique_ptr<Node>> m_nodes{};
-  NodeTree m_tree{};
+  NodeContainer m_nodeContainer;
+  NodeFactory m_nodeFactory{&m_nodeContainer};
+  // NodeMap m_map{};
+  // NodeTree m_tree{};
 
-  AssetManager m_assetManager = AssetManager::instance();
+  AssetManager m_assetManager;
 
   VulkanMemory *m_vulkanMemory;
   PipelineFactory *m_pipelineFactory;
@@ -267,13 +386,12 @@ private:
 class SceneFactory {
 public:
   static void createScene(AssetManager &assetManager,
-                          const std::string &sceneKey, NodeMap &map,
-                          NodeTree &tree);
+                          const std::string &sceneKey, NodeFactory *nodeFactory,NodeContainer * container);
 
 private:
-  static std::unique_ptr<Node>
+  static void
   createNode(tinygltf::Node const &, tinygltf::Model const &,
-             std::vector<tinygltf::Buffer> &buffers);
+             std::vector<tinygltf::Buffer> &buffers,NodeFactory *nodeFactory);
 
   template <typename T, typename Param, std::size_t... Ints>
     requires IsAnyOf<T, glm::vec3, glm::quat, glm::mat4> &&
@@ -294,7 +412,8 @@ private:
   static Mesh createMesh(int meshIndex, const tinygltf::Model &model,
                          std::vector<tinygltf::Buffer> &buffers);
 
-  static Camera createCamera(const tinygltf::Camera &camera);
+  static Camera* createCamera(const tinygltf::Camera &camera, const std::string &name,
+                                  NodeFactory *nodeFactory);
 
   // 根据acessor 获取span
   static GlTFSpanVariantType

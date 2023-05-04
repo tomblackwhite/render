@@ -89,7 +89,7 @@ VertexInputDescription Mesh::SubMesh::getVertexDescription() {
       .format = vk::Format::eR32G32B32Sfloat,
       .offset = 0};
   vk::VertexInputAttributeDescription normalAttr{
-      .location = 0,
+      .location = 1,
       .binding = 1,
       .format = vk::Format::eR32G32B32Sfloat,
       .offset = 0};

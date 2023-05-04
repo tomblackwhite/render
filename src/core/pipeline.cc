@@ -95,7 +95,7 @@ VulkanInitializer::getViewPortInverseY(vk::Viewport const &viewPort) {
   return {.x = viewPort.x,
           .y = viewPort.y + viewPort.height,
           .width = viewPort.width,
-          .height = viewPort.height,
+          .height = -viewPort.height,
           .minDepth = viewPort.minDepth,
           .maxDepth = viewPort.maxDepth};
 }

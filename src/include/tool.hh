@@ -110,7 +110,7 @@ inline std::vector<unsigned char> readFile(const fs::path &filename) {
 
   std::ifstream file(filename, std::ios::ate | std::ios::binary);
   if (!file.is_open()) {
-    App::ThrowException("failed to open file!");
+    App::ThrowException(fmt::format("can't open file {}",filename.string()));
   }
   auto fileSize = file.tellg();
   std::vector<unsigned char> buffer(fileSize);
