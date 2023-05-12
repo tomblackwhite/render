@@ -129,6 +129,7 @@ raii::Pipeline PipelineFactory::createPipeline(const GraphicsPipelineCreateInfo 
   pipelineInfo.setStages(info.m_shaderStages);
   pipelineInfo.pVertexInputState = &info.m_vertexInputInfo;
   pipelineInfo.pInputAssemblyState = &info.m_inputAssembly;
+
   pipelineInfo.pViewportState = &viewportState;
   pipelineInfo.pRasterizationState = &info.m_rasterizer;
   pipelineInfo.pMultisampleState = &info.m_multisampling;

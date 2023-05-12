@@ -27,8 +27,6 @@ SceneManager::SceneManager(VulkanMemory *memory, PipelineFactory *factory,
   bufferInfo.setSize(sizeof(GPUCamera));
   VmaAllocationCreateInfo allocationInfo{};
   allocationInfo.usage = VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-  allocationInfo.flags = VmaAllocationCreateFlagBits::
-      VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
   m_scene.cameraBuffer =
       m_vulkanMemory->createBuffer(bufferInfo, allocationInfo);
 
@@ -154,10 +152,10 @@ void SceneManager::showScene(const string &scene) {
   auto meshCount = meshsView.size();
 #endif
   // 上传到gpu
-  m_scene.vertexBuffer = m_vulkanMemory->uploadMeshes(meshsView);
+  m_scene.vertexBuffer = m_vulkanMemory->uploadMeshesByTransfer(meshsView);
 
   // 上传camera
-  m_vulkanMemory->upload(m_scene.cameraBuffer,
+  m_vulkanMemory->uploadByTransfer(m_scene.cameraBuffer,
                          views::single(std::span(&m_scene.camera, 1)));
 }
 

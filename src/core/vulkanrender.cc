@@ -32,7 +32,9 @@ void VulkanRender::initVulkan(const VkSurfaceKHR &surface) {
       m_gpuProperties.limits.minUniformBufferOffsetAlignment);
 }
 
-void VulkanRender::initMemory() { m_vulkanMemory = createVulkanMemory(); }
+void VulkanRender::initMemory() {
+  m_vulkanMemory = std::make_unique<App::VulkanMemory>(createVulkanMemory());
+}
 
 void VulkanRender::initPipelineFactory() {
   vk::Viewport viewPort{0.0f,
@@ -45,8 +47,7 @@ void VulkanRender::initPipelineFactory() {
 
   vk::Rect2D scissor{{0, 0}, m_renderSize};
   m_pipelineFactory = std::make_unique<App::PipelineFactory>(
-      m_pDevice.get(), *m_renderTarget->m_renderPass,
-      viewPortY, scissor);
+      m_pDevice.get(), *m_renderTarget->m_renderPass, viewPortY, scissor);
 }
 
 void VulkanRender::initFrameDatas() {
@@ -149,30 +150,35 @@ void VulkanRender::pickPhysicalDevice() {
 void VulkanRender::createLogicalDevice() {
   App::QueueFamilyIndices indices =
       App::VulkanInitializer::findQueueFamilies(*m_physicalDevice, *m_surface);
+  m_queueFamilyIndices = indices;
 
   std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
-  std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(),
-                                            indices.presentFamily.value()};
+  std::multiset<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(),
+                                                 indices.transferFamily.value(),
+                                                 indices.presentFamily.value()};
 
   auto queuePriority = 1.0F;
 
   for (uint32_t queueFamily : uniqueQueueFamilies) {
-    vk::DeviceQueueCreateInfo queueCreateInfo{.queueFamilyIndex = queueFamily,
-                                              .queueCount = 1,
-                                              .pQueuePriorities =
-                                                  &queuePriority};
+    vk::DeviceQueueCreateInfo queueCreateInfo{
+        .queueFamilyIndex = queueFamily,
+        .queueCount =
+            static_cast<uint32_t>(uniqueQueueFamilies.count(queueFamily)),
+        .pQueuePriorities = &queuePriority};
     queueCreateInfos.push_back(queueCreateInfo);
   }
 
   vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2,
-                     vk::PhysicalDeviceVulkan12Features>
+                     vk::PhysicalDeviceVulkan12Features,
+                     vk::PhysicalDeviceVulkan13Features>
       deviceCreateChains{};
   // vk::PhysicalDeviceFeatures deviceFeatures{};
   auto &deviceFeatures = deviceCreateChains.get<vk::PhysicalDeviceFeatures2>();
-  deviceFeatures.features.setSamplerAnisotropy(VK_TRUE);
-  auto &device12Features =
-      deviceCreateChains.get<vk::PhysicalDeviceVulkan12Features>();
+  auto &device13Features =
+      deviceCreateChains.get<vk::PhysicalDeviceVulkan13Features>();
 
+  deviceFeatures.features.setSamplerAnisotropy(VK_TRUE);
+  device13Features.setSynchronization2(VK_TRUE);
   // 不需要标量对齐方案
   // device12Features.setScalarBlockLayout(VK_TRUE);
 
@@ -197,121 +203,16 @@ void VulkanRender::createLogicalDevice() {
   m_pDevice =
       std::make_unique<raii::Device>(m_physicalDevice.createDevice(createInfo));
 
-  m_graphicsQueue = m_pDevice->getQueue(indices.graphicsFamily.value(), 0);
-  m_presentQueue = m_pDevice->getQueue(indices.presentFamily.value(), 0);
+  m_graphicsQueue = std::make_unique<raii::Queue>(m_pDevice->getQueue(
+      indices.graphicsFamily.value(), indices.graphicsQueueIndex.value()));
+  auto presentQueue = m_pDevice->getQueue(indices.presentFamily.value(),
+                                          indices.presentQueueIndex.value());
+
+  m_presentQueue = std::make_unique<raii::Queue>(presentQueue);
+  auto transferQueue = m_pDevice->getQueue(indices.transferFamily.value(),
+                                           indices.transferQueueIndex.value());
+  m_transferQueue = std::make_unique<raii::Queue>(transferQueue);
 }
-
-// void VulkanRender::createGraphicsPipeline() {
-//   std::string homePath = m_programRootPath;
-
-//   auto vertShaderCode = readFile(homePath + "/shader/vert.spv");
-//   auto fragShaderCode = readFile(homePath + "/shader/frag.spv");
-//   auto vertShaderModule = createShaderModule(vertShaderCode);
-//   auto fragShaderModule = createShaderModule(fragShaderCode);
-
-//   using namespace App;
-//   PipelineFactory pipelineFactory;
-
-//   // pipelineFactory
-//   pipelineFactory.m_shaderStages.push_back(
-//       VulkanInitializer::getPipelineShaderStageCreateInfo(
-//           vk::ShaderStageFlagBits::eVertex, *vertShaderModule));
-
-//   pipelineFactory.m_shaderStages.push_back(
-//       VulkanInitializer::getPipelineShaderStageCreateInfo(
-//           vk::ShaderStageFlagBits::eFragment, *fragShaderModule));
-
-//   // 保持生命周期
-//   auto inputDescriptor = App::Vertex::getVertexDescription();
-//   pipelineFactory.m_vertexInputInfo =
-//       VulkanInitializer::getPipelineVertexInputStateCreateInfo(inputDescriptor);
-
-//   pipelineFactory.m_inputAssembly =
-//       VulkanInitializer::getPipelineInputAssemblyStateCreateInfo();
-
-//   // let view port height negative , let ndc to left hand ,y is up
-
-//   auto height = m_renderTarget->m_swapChainExtent.height;
-//   auto width = m_renderTarget->m_swapChainExtent.width;
-//   pipelineFactory.m_viewPort = vk::Viewport{.x = 0.0F,
-//                                             .y = 0.0F + (float)height,
-//                                             .width = (float)width,
-//                                             .height = -((float)height),
-//                                             .minDepth = 0.0F,
-//                                             .maxDepth = 1.0F};
-//   pipelineFactory.m_scissor =
-//       vk::Rect2D{.offset = {0, 0}, .extent =
-//       m_renderTarget->m_swapChainExtent};
-
-//   pipelineFactory.m_rasterizer =
-//       VulkanInitializer::getPipelineRasterizationStateCreateInfo();
-
-//   pipelineFactory.m_multisampling =
-//       VulkanInitializer::getPipelineMultisampleStateCreateInfo();
-
-//   pipelineFactory.m_colorBlendAttachment =
-//       VulkanInitializer::getPipelineColorBlendAttachmentState();
-//   pipelineFactory.m_depthStencilCreateInfo =
-//       VulkanInitializer::getDepthStencilCreateInfo(true, true,
-//                                                    vk::CompareOp::eLessOrEqual);
-
-//   std::vector<vk::DynamicState> dynamicStates = {
-//       vk::DynamicState::eViewport,
-//       vk::DynamicState::eLineWidth,
-//   };
-
-//   auto pipelineLayoutInfo = VulkanInitializer::getPipelineLayoutCreateInfo();
-
-//   vk::PushConstantRange pushConstant = {};
-//   pushConstant.setOffset(0);
-//   pushConstant.setSize(sizeof(App::MeshPushConstants));
-//   pushConstant.setStageFlags(vk::ShaderStageFlagBits::eVertex);
-
-//   pipelineLayoutInfo.setPushConstantRanges(pushConstant);
-//   pipelineLayoutInfo.setSetLayouts(*m_descriptorSetlayout);
-
-//   // pipelineLayoutInfo.setSetLayouts(*m_descriptorSetLayout);
-//   m_pipelineLayout = m_pDevice->createPipelineLayout(pipelineLayoutInfo);
-
-//   pipelineFactory.m_pipelineLayout = *m_pipelineLayout;
-//   m_graphicsPipeline = pipelineFactory.buildPipeline(
-//       *m_pDevice, *(m_renderTarget->m_renderPass));
-// }
-
-// void VulkanRender::drawObjects(uint32_t frameIndex) {
-//   glm::vec3 camPos = {0.f, 0.f, -2.f};
-//   auto lookAtView =
-//       glm::lookAt(camPos, glm::vec3{0.f, 0.f, 0.f}, glm::vec3{0, -1, 0});
-
-//   auto width = m_renderTarget->m_swapChainExtent.width;
-//   auto height = m_renderTarget->m_swapChainExtent.height;
-//   // // camera projection
-//   glm::mat4 projection = glm::perspective(
-//       glm::radians(60.f), static_cast<float>(width) / height, 1.5f, 200.0f);
-//   // // model rotation
-//   glm::mat4 model =
-//       glm::rotate(glm::mat4{1.0f}, glm::radians(45.0f), glm::vec3(0, -1, 0));
-
-//   // auto big2 = projection * lookAtView ;
-//   App::GPUCameraData camData{};
-//   camData.proj = projection;
-//   camData.view = lookAtView;
-//   camData.viewProj = projection * lookAtView;
-
-//   std::array camDatas{camData};
-
-//   m_vulkanMemory->upload(m_frameDatas[frameIndex].cameraBuffer,
-//                          std::span<App::GPUCameraData>(camDatas));
-
-//   m_sceneParameters.ambientColor = {std::sin(90.0 * frameIndex / 360), 0, 0,
-//   1};
-
-//   std::array sceneParas{m_sceneParameters};
-
-//   m_vulkanMemory->upload(
-//       m_sceneParaBuffer, std::span<App::GPUSceneData>{sceneParas},
-//       getPadUniformBufferOffsetSize(sizeof(App::GPUSceneData)) * frameIndex);
-// }
 
 void VulkanRender::drawFrame(App::Scene const &scene) {
 
@@ -374,7 +275,7 @@ void VulkanRender::drawFrame(App::Scene const &scene) {
   std::array signalSemaphores = {
       *m_frames[m_currentFrame].renderFinishedSemaphore};
   submitInfo.setSignalSemaphores(signalSemaphores);
-  m_graphicsQueue.submit(submitInfo, *m_frames[m_currentFrame].inFlightFence);
+  m_graphicsQueue->submit(submitInfo, *m_frames[m_currentFrame].inFlightFence);
 
   // auto imageIndex = imageIndexs[i];
   vk::PresentInfoKHR presentInfo{};
@@ -385,7 +286,8 @@ void VulkanRender::drawFrame(App::Scene const &scene) {
   presentInfo.pResults = nullptr;
 
   try {
-    auto presentQueueResult = m_presentQueue.presentKHR(presentInfo);
+
+    auto presentQueueResult = m_presentQueue->presentKHR(presentInfo);
 
   } catch (const std::system_error &system) {
     auto code = system.code();
@@ -514,17 +416,6 @@ void VulkanRender::recordCommandBuffer(
   commandBuffer.end();
 }
 
-// raii::ShaderModule
-// VulkanRender::createShaderModule(const std::vector<char> &code) {
-//   vk::ShaderModuleCreateInfo createInfo{};
-//   createInfo.codeSize = code.size();
-
-//   createInfo.pCode =
-//       std::launder(reinterpret_cast<const uint32_t *>(code.data()));
-//   auto shaderModule = m_pDevice->createShaderModule(createInfo);
-//   return shaderModule;
-// }
-
 void VulkanRender::waitDrawClean() { m_pDevice->waitIdle(); };
 
 void VulkanRender::cleanup() {
@@ -549,36 +440,9 @@ void VulkanRender::cleanup() {
   // m_debugMessenger.clear();
 }
 
-
-
-// void VulkanRender::loadMeshs() {
-//   m_mesh.vertices.resize(6);
-//   // vertex positions
-//   m_mesh.vertices[0].position = {1.f, 1.f, 0.0f};
-//   m_mesh.vertices[1].position = {-1.f, 1.f, 0.0f};
-//   m_mesh.vertices[2].position = {1.f, -1.f, 0.0f};
-//   m_mesh.vertices[3].position = {-1.f, -1.f, 0.0f};
-//   m_mesh.vertices[4].position = {-1.f, 1.f, 0.0f};
-//   m_mesh.vertices[5].position = {1.f, -1.f, 0.0f};
-//   // vertex colors, all green
-//   m_mesh.vertices[0].color = {1.f, 0.f, 0.0f}; // pure green
-//   m_mesh.vertices[1].color = {0.f, 1.f, 0.0f}; // pure green
-//   m_mesh.vertices[2].color = {0.f, 0.f, 1.0f}; // pure green
-//   m_mesh.vertices[3].color = {0.f, 1.f, 1.0f}; // pure green
-//   m_mesh.vertices[4].color = {0.f, 1.f, 0.0f}; // pure green
-//   m_mesh.vertices[5].color = {0.f, 0.f, 1.0f}; // pure green
-
-//   if (!m_monkeyMesh.loadFromOBJ(m_programRootPath + "/asset/houtou.obj")) {
-//     App::ThrowException("load obj error");
-//   }
-
-//   m_vulkanMemory->uploadMesh(m_mesh);
-//   m_vulkanMemory->uploadMesh(m_monkeyMesh);
-// }
-
 void VulkanRender::createRenderTarget() {
 
-  App::RenderTargetBuilder builder{*m_pDevice, m_vulkanMemory};
+  App::RenderTargetBuilder builder{*m_pDevice, *m_vulkanMemory};
   App::RenderTargetBuilder::CreateInfo info{};
 
   info.physicalDevice = *m_physicalDevice;
@@ -610,5 +474,10 @@ App::VulkanMemory VulkanRender::createVulkanMemory() {
   createInfo.physicalDevice = *m_physicalDevice;
   createInfo.instance = *m_instance;
 
-  return App::VulkanMemory(createInfo, m_pDevice.get());
+  return App::VulkanMemory(createInfo, m_pDevice.get(), m_transferQueue.get(),
+                           m_graphicsQueue.get(),
+                           m_queueFamilyIndices.transferFamily.value(),
+                           m_queueFamilyIndices.graphicsFamily.value(),
+                           m_queueFamilyIndices.transferFamily.value() ==
+                               m_queueFamilyIndices.graphicsFamily.value());
 }

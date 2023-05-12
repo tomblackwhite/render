@@ -65,7 +65,7 @@ void RenderTargetBuilder::buildSwapChainAndView() {
   m_product->m_swapChainImages = std::move(swapChainImages);
   m_product->m_swapChainImageViews = std::move(swapChainViews);
   m_product->m_swapChainFormat = createInfo.imageFormat;
-  m_product->m_swapChainExtent= createInfo.imageExtent;
+  m_product->m_swapChainExtent = createInfo.imageExtent;
 }
 
 void RenderTargetBuilder::buildDepthImageAndView() {
@@ -234,6 +234,11 @@ vk::SurfaceFormatKHR VulkanInitializer::chooseSwapSurfaceFormat(
   return availableFormats[0];
 }
 
+struct QueueCountInFamily {
+  uint32_t count = 0;
+  std::vector<std::optional<uint32_t> *> countIndexInFamily;
+};
+
 QueueFamilyIndices
 VulkanInitializer::findQueueFamilies(const vk::PhysicalDevice &device,
                                      vk::SurfaceKHR surface) {
@@ -246,15 +251,52 @@ VulkanInitializer::findQueueFamilies(const vk::PhysicalDevice &device,
   for (const auto &queueFamily : queueFamilies) {
     if (queueFamily.queueFlags & vk::QueueFlagBits::eGraphics) {
       indices.graphicsFamily = index;
+      indices.graphicsQueueIndex = 0;
+    }
+
+    if (queueFamily.queueFlags & vk::QueueFlagBits::eTransfer) {
+      indices.transferFamily = index;
+      indices.transferQueueIndex = 0;
     }
 
     auto presentSupport = device.getSurfaceSupportKHR(index, surface);
 
-    if (presentSupport==VK_TRUE) {
+    if (presentSupport == VK_TRUE) {
       indices.presentFamily = index;
+      indices.presentQueueIndex = 0;
     }
     index++;
   }
+
+  // //获得同一queueFamily下，需要的 queue 数量
+  // using IndicesInFamily = std::vector<std::optional<uint32_t> *>;
+  // std::vector<IndicesInFamily> queueCountInFamilyindices(queueFamilies.size());
+
+  // queueCountInFamilyindices[indices.graphicsFamily.value()].push_back(
+  //     &indices.graphicsQueueIndex);
+  // queueCountInFamilyindices[indices.transferFamily.value()].push_back(
+  //     &indices.transferQueueIndex);
+  // queueCountInFamilyindices[indices.presentFamily.value()].push_back(
+  //     &indices.presentQueueIndex);
+
+  // //计算同一queueFamily下，如何求出queue index
+  // for (uint i = 0; i < queueCountInFamilyindices.size(); ++i) {
+  //   auto &queueIndices = queueCountInFamilyindices[i];
+  //   auto const& queueFamily = queueFamilies[i];
+  //   auto queueCount = queueFamily.queueCount;
+  //   for (uint j = 0; j < queueIndices.size(); ++j) {
+  //     *queueIndices[j] = j % queueCount;
+  //   }
+  // }
+
+  // if (indices.transferFamily == indices.graphicsFamily) {
+  //   if (queueFamilies[indices.graphicsFamily.value()].queueCount >= 2) {
+  //     indices.transferQueueIndex = indices.graphicsQueueIndex.value() + 1;
+  //   }
+
+  //   if(indices.)
+  // }
+
   return indices;
 }
 

@@ -59,6 +59,7 @@ template <typename T> struct VmaDeleter {
 
   VmaAllocator m_allocator = {};
   VmaAllocation m_allocation = {};
+
   std::size_t m_size = {};
 };
 
@@ -172,99 +173,13 @@ struct Mesh {
   };
 
   std::vector<SubMesh> subMeshs;
-
-  // uint32_t indexCount =0;
-  // uint32_t vertexCount=0;
-
-  // bool loadFromOBJ(std::string const &path) {
-
-  //   tinygltf::Model model;
-  //   tinyobj::attrib_t attrib;
-
-  //   std::vector<tinyobj::shape_t> shapes;
-
-  //   std::vector<tinyobj::material_t> materials;
-
-  //   std::string warn;
-  //   std::string err;
-
-  //   bool re =
-  //       tinyobj::LoadObj(&attrib, &shapes, &materials, &err, path.c_str());
-
-  //   if (!err.empty()) {
-  //     std::cerr << "loadObject error " << err << '\n';
-  //   }
-  //   if (!re) {
-  //     return false;
-  //   }
-
-  //   for (auto &shape : shapes) {
-
-  //     // Loop over faces(polygon)
-  //     size_t index_offset = 0;
-  //     for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); f++) {
-  //       size_t fv = size_t(shape.mesh.num_face_vertices[f]);
-
-  //       // Loop over vertices in the face.
-  //       for (size_t v = 0; v < fv; v++) {
-  //         // access to vertex
-  //         tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
-
-  //         Vertex vertex{};
-  //         tinyobj::real_t vx =
-  //             attrib.vertices[3 * size_t(idx.vertex_index) + 0];
-  //         tinyobj::real_t vy =
-  //             attrib.vertices[3 * size_t(idx.vertex_index) + 1];
-  //         tinyobj::real_t vz =
-  //             attrib.vertices[3 * size_t(idx.vertex_index) + 2];
-
-  //         vertex.position = glm::vec3(vx, vy, vz);
-  //         // Check if `normal_index` is zero or positive. negative = no
-  //         normal
-  //         // data
-  //         if (idx.normal_index >= 0) {
-  //           tinyobj::real_t nx =
-  //               attrib.normals[3 * size_t(idx.normal_index) + 0];
-  //           tinyobj::real_t ny =
-  //               attrib.normals[3 * size_t(idx.normal_index) + 1];
-  //           tinyobj::real_t nz =
-  //               attrib.normals[3 * size_t(idx.normal_index) + 2];
-  //           vertex.normal = glm::vec3(nx, ny, nz);
-  //         }
-
-  //         // Check if `texcoord_index` is zero or positive. negative = no
-  //         // texcoord data
-  //         if (idx.texcoord_index >= 0) {
-  //           tinyobj::real_t tx =
-  //               attrib.texcoords[2 * size_t(idx.texcoord_index) + 0];
-  //           tinyobj::real_t ty =
-  //               attrib.texcoords[2 * size_t(idx.texcoord_index) + 1];
-  //         }
-
-  //         vertex.color = vertex.normal;
-
-  //         // Optional: vertex colors
-  //         // tinyobj::real_t red   =
-  //         // attrib.colors[3*size_t(idx.vertex_index)+0]; tinyobj::real_t
-  //         green
-  //         // = attrib.colors[3*size_t(idx.vertex_index)+1]; tinyobj::real_t
-  //         blue
-  //         // = attrib.colors[3*size_t(idx.vertex_index)+2];
-  //         vertices.push_back(vertex);
-  //       }
-  //       index_offset += fv;
-  //     }
-  //   }
-
-  //   return true;
-  // }
 };
 
 // VertexBuffer Struct
 struct VertexBuffer {
   VulkanBufferHandle indexBuffer;
   std::vector<VulkanBufferHandle> buffers;
-  VertexInputDescription inputDescription;
+  // VertexInputDescription inputDescription;
 };
 class VulkanMemory {
 public: // Inteface
@@ -336,7 +251,6 @@ public: // Inteface
     meshSize = indexBufferSize + positionBufferSize + normalBufferSize;
 
     VertexBuffer vertexBuffer;
-    vertexBuffer.inputDescription = Mesh::SubMesh::getVertexDescription();
     // 创建buffer
     VmaAllocationCreateInfo allocationInfo = {};
     allocationInfo.usage = VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
@@ -368,6 +282,165 @@ public: // Inteface
     return vertexBuffer;
   }
 
+  // 现在假设所有mesh中的indexType全部为16位。如果不是会不加载。打log;
+  template <ranges::input_range T>
+    requires std::same_as<ranges::range_value_t<T>, Mesh>
+  VertexBuffer uploadMeshesByTransfer(T &&meshes) {
+
+    if (ranges::size(meshes) == 0) {
+      return VertexBuffer{};
+    }
+    // 用于绑定vertexBuffer
+    std::vector<Mesh::IndexSpanType> indices;
+    vk::DeviceSize indexBufferSize = 0;
+    std::vector<std::span<Mesh::PositionType>> positions;
+    vk::DeviceSize positionBufferSize = 0;
+    std::vector<std::span<Mesh::NormalType>> normals;
+    vk::DeviceSize normalBufferSize = 0;
+
+    // 获取mesh大小。
+    vk::DeviceSize meshSize = 0;
+    for (auto &mesh : meshes) {
+      for (auto &subMesh : mesh.subMeshs) {
+        indexBufferSize += subMesh.indices.size_bytes();
+        indices.push_back(subMesh.indices);
+        positionBufferSize += subMesh.positions.size_bytes();
+        positions.push_back(subMesh.positions);
+        normalBufferSize += subMesh.normals.size_bytes();
+        normals.push_back(subMesh.normals);
+      }
+    }
+    meshSize = indexBufferSize + positionBufferSize + normalBufferSize;
+
+    VertexBuffer vertexBuffer;
+    VertexBuffer transferBuffer;
+    // vertexBuffer.inputDescription = Mesh::SubMesh::getVertexDescription();
+    // 创建buffer
+    VmaAllocationCreateInfo allocationInfo = {};
+    allocationInfo.usage = VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+
+    vk::BufferCreateInfo indexBufferInfo = {
+        .size = indexBufferSize,
+        .usage = vk::BufferUsageFlagBits::eIndexBuffer |
+                 vk::BufferUsageFlagBits::eTransferDst};
+    auto indexBuffer = createBuffer(indexBufferInfo, allocationInfo);
+    vertexBuffer.indexBuffer = std::move(indexBuffer);
+    transferBuffer.indexBuffer =
+        uploadToTransfer(indexBuffer, ranges::views::all(indices));
+
+    vk::BufferCreateInfo positionBufferInfo = {
+        .size = positionBufferSize,
+        .usage = vk::BufferUsageFlagBits::eVertexBuffer |
+                 vk::BufferUsageFlagBits::eTransferDst};
+
+    auto positionBuffer = createBuffer(positionBufferInfo, allocationInfo);
+    transferBuffer.buffers.push_back(
+        uploadToTransfer(positionBuffer, ranges::views::all(positions)));
+    vertexBuffer.buffers.push_back(std::move(positionBuffer));
+
+    vk::BufferCreateInfo normalBufferInfo = {
+        .size = positionBufferSize,
+        .usage = vk::BufferUsageFlagBits::eVertexBuffer |
+                 vk::BufferUsageFlagBits::eTransferDst};
+    auto normalBuffer = createBuffer(normalBufferInfo, allocationInfo);
+    transferBuffer.buffers.push_back(
+        uploadToTransfer(normalBuffer, ranges::views::all(normals)));
+    vertexBuffer.buffers.push_back(std::move(normalBuffer));
+
+    auto transferCommand = [&vertexBuffer, &transferBuffer,
+                            graphicFamilyIndex = m_graphicQueueFamilyIndex,
+                            transferFamilyIndex = m_transferQueueFamilyIndex](
+                               vk::CommandBuffer commandBuffer) {
+      std::vector<vk::BufferMemoryBarrier2> barriers{};
+      bool isSame = (graphicFamilyIndex == transferFamilyIndex);
+
+      vk::CopyBufferInfo2 copyInfo2{};
+      copyInfo2.setSrcBuffer(transferBuffer.indexBuffer.get());
+      copyInfo2.setDstBuffer(vertexBuffer.indexBuffer.get());
+      auto indexSize = vertexBuffer.indexBuffer.get_deleter().m_size;
+      vk::BufferCopy2 region{};
+      region.setSize(indexSize);
+      copyInfo2.setRegions(region);
+      commandBuffer.copyBuffer2(copyInfo2);
+      if (!isSame) {
+        vk::BufferMemoryBarrier2 barrier{};
+        barrier.setSrcAccessMask(vk::AccessFlagBits2::eTransferWrite);
+        barrier.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer);
+        barrier.setSrcQueueFamilyIndex(transferFamilyIndex);
+        barrier.setDstQueueFamilyIndex(graphicFamilyIndex);
+        barrier.buffer = vertexBuffer.indexBuffer.get();
+        barrier.setSize(VK_WHOLE_SIZE);
+        barriers.push_back(barrier);
+      }
+
+      for (auto i = 0uz; i < vertexBuffer.buffers.size(); ++i) {
+        vk::CopyBufferInfo2 info{.srcBuffer = transferBuffer.buffers[i].get(),
+                                 .dstBuffer = vertexBuffer.buffers[i].get()};
+        auto bufferSize = vertexBuffer.buffers[i].get_deleter().m_size;
+        vk::BufferCopy2 regionVertex{.size = bufferSize};
+        info.setRegions(regionVertex);
+        commandBuffer.copyBuffer2(info);
+
+        if (!isSame) {
+          vk::BufferMemoryBarrier2 barrier{};
+          barrier.setSrcAccessMask(vk::AccessFlagBits2::eTransferWrite);
+          barrier.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer);
+          barrier.setSrcQueueFamilyIndex(transferFamilyIndex);
+          barrier.setDstQueueFamilyIndex(graphicFamilyIndex);
+          barrier.buffer = vertexBuffer.buffers[i].get();
+          barrier.setSize(VK_WHOLE_SIZE);
+          barriers.push_back(barrier);
+        }
+      }
+
+      // 不同queueFamily 需要queue family ownership transfer
+      // 释放owenership
+      if (!isSame) {
+
+        vk::DependencyInfo depencyInfo{};
+        depencyInfo.setBufferMemoryBarriers(barriers);
+        commandBuffer.pipelineBarrier2(depencyInfo);
+      }
+    };
+    auto graphicCommand = [&vertexBuffer, &transferBuffer,
+                           graphicFamilyIndex = m_graphicQueueFamilyIndex,
+                           transferFamilyIndex = m_transferQueueFamilyIndex](
+                              vk::CommandBuffer commandBuffer) {
+      std::vector<vk::BufferMemoryBarrier2> barriers{};
+      vk::BufferMemoryBarrier2 barrier{};
+      barrier.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead);
+      barrier.setDstStageMask(vk::PipelineStageFlagBits2::eAllCommands);
+      barrier.setSrcQueueFamilyIndex(transferFamilyIndex);
+      barrier.setDstQueueFamilyIndex(graphicFamilyIndex);
+      barrier.buffer = vertexBuffer.indexBuffer.get();
+      barrier.setSize(VK_WHOLE_SIZE);
+      barriers.push_back(barrier);
+
+      for (auto i = 0uz; i < vertexBuffer.buffers.size(); ++i) {
+        vk::BufferMemoryBarrier2 barrier{};
+        barrier.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead);
+        barrier.setDstStageMask(vk::PipelineStageFlagBits2::eAllCommands);
+        barrier.setSrcQueueFamilyIndex(transferFamilyIndex);
+        barrier.setDstQueueFamilyIndex(graphicFamilyIndex);
+        barrier.buffer = vertexBuffer.buffers[i].get();
+        barrier.setSize(VK_WHOLE_SIZE);
+        barriers.push_back(barrier);
+      }
+      vk::DependencyInfo depencyInfo{};
+      depencyInfo.setBufferMemoryBarriers(barriers);
+      commandBuffer.pipelineBarrier2(depencyInfo);
+    };
+
+    bool isSame = (m_graphicQueueFamilyIndex == m_transferQueueFamilyIndex);
+
+    if (isSame) {
+      immediateSubmit(transferCommand);
+    } else {
+      immediateSubmit(transferCommand, graphicCommand);
+    }
+
+    return vertexBuffer;
+  }
   // maybe change element_type as std::span<byte>
   //  upload to gpu memory
   template <typename View>
@@ -379,6 +452,9 @@ public: // Inteface
     auto deleter = handle.get_deleter();
     auto *alloction = deleter.m_allocation;
     auto size = deleter.m_size;
+
+    vk::BufferCreateInfo info{};
+    info.setSize(size);
 
     void *data = nullptr;
 
@@ -393,6 +469,148 @@ public: // Inteface
     }
 
     vmaUnmapMemory(m_allocator.get(), alloction);
+  }
+
+  // 上传到transfer buffer
+  template <typename View>
+    requires std::same_as<
+        ranges::range_value_t<View>,
+        std::span<typename ranges::range_value_t<View>::element_type>>
+  [[nodiscard("transferBuffer return")]] VulkanBufferHandle
+  uploadToTransfer(VulkanBufferHandle const &handle, View buffers) {
+
+    auto deleter = handle.get_deleter();
+    auto *alloction = deleter.m_allocation;
+    auto size = deleter.m_size;
+
+    vk::BufferCreateInfo info{};
+    info.setSize(size);
+    info.setSharingMode(vk::SharingMode::eExclusive);
+    info.setUsage(vk::BufferUsageFlagBits::eTransferSrc);
+
+    // 创建 transferBuffer
+    VmaAllocationCreateInfo allocationInfo = {};
+    allocationInfo.usage = VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO;
+    allocationInfo.flags = VmaAllocationCreateFlagBits::
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+
+    auto transferBuffer = createBuffer(info, allocationInfo);
+
+    auto transferDeleter = transferBuffer.get_deleter();
+    auto *transferAllocation = transferDeleter.m_allocation;
+
+    void *data = nullptr;
+
+    App::VulkanCheck(vmaMapMemory(m_allocator.get(), transferAllocation, &data),
+                     "map error");
+    for (auto &buffer : buffers) {
+      std::memcpy(data, buffer.data(), buffer.size_bytes());
+      auto *nextAddr = static_cast<unsigned char *>(data);
+      nextAddr += buffer.size_bytes();
+      data = nextAddr;
+    }
+    vmaUnmapMemory(m_allocator.get(), transferAllocation);
+
+    return transferBuffer;
+  }
+
+  // 通过transfer buffer上传到对应buffer
+  template <typename View>
+    requires std::same_as<
+        ranges::range_value_t<View>,
+        std::span<typename ranges::range_value_t<View>::element_type>>
+  void uploadByTransfer(VulkanBufferHandle const &handle, View buffers) {
+
+    auto transferBuffer = uploadToTransfer(handle, buffers);
+
+    auto deleter = handle.get_deleter();
+    auto *alloction = deleter.m_allocation;
+    auto size = deleter.m_size;
+
+    // vk::BufferCreateInfo info{};
+    // info.setSize(size);
+    // info.setSharingMode(vk::SharingMode::eExclusive);
+    // info.setUsage(vk::BufferUsageFlagBits::eTransferSrc);
+
+    // // 创建 transferBuffer
+    // VmaAllocationCreateInfo allocationInfo = {};
+    // allocationInfo.usage = VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO;
+    // allocationInfo.flags = VmaAllocationCreateFlagBits::
+    //     VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+
+    // auto transferBuffer = createBuffer(info, allocationInfo);
+
+    // auto transferDeleter = transferBuffer.get_deleter();
+    // auto *transferAllocation = transferDeleter.m_allocation;
+
+    // void *data = nullptr;
+
+    // App::VulkanCheck(vmaMapMemory(m_allocator.get(), transferAllocation,
+    // &data),
+    //                  "map error");
+    // for (auto &buffer : buffers) {
+    //   std::memcpy(data, buffer.data(), buffer.size_bytes());
+    //   auto *nextAddr = static_cast<unsigned char *>(data);
+    //   nextAddr += buffer.size_bytes();
+    //   data = nextAddr;
+    // }
+    // vmaUnmapMemory(m_allocator.get(), transferAllocation);
+
+    // return transferBuffer;
+
+    auto transferCommand = [size, srcBuffer = transferBuffer.get(),
+                            dstBuffer = handle.get(),
+                            transferFamilyIndex = m_transferQueueFamilyIndex,
+                            graphicFamilyIndex = m_graphicQueueFamilyIndex](
+                               vk::CommandBuffer buffer) {
+      vk::BufferCopy copyRegion{};
+      copyRegion.setSize(size);
+      copyRegion.setSrcOffset(0);
+      copyRegion.setDstOffset(0);
+      buffer.copyBuffer(srcBuffer, dstBuffer, copyRegion);
+
+      if (graphicFamilyIndex != transferFamilyIndex) {
+        vk::BufferMemoryBarrier2 barrier{};
+
+        barrier.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer);
+        barrier.setSrcAccessMask(vk::AccessFlagBits2::eTransferWrite);
+        barrier.setSrcQueueFamilyIndex(transferFamilyIndex);
+        barrier.setDstQueueFamilyIndex(graphicFamilyIndex);
+        barrier.setBuffer(dstBuffer);
+        barrier.setSize(VK_WHOLE_SIZE);
+
+        vk::DependencyInfo dependencyInfo{};
+        dependencyInfo.setBufferMemoryBarriers(barrier);
+
+        buffer.pipelineBarrier2(dependencyInfo);
+      }
+    };
+
+    auto graphicCommand = [size, srcBuffer = transferBuffer.get(),
+                           dstBuffer = handle.get(),
+                           transferFamilyIndex = m_transferQueueFamilyIndex,
+                           graphicFamilyIndex = m_graphicQueueFamilyIndex](
+                              vk::CommandBuffer buffer) {
+      vk::BufferMemoryBarrier2 barrier{};
+
+      barrier.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead);
+      barrier.setDstStageMask(vk::PipelineStageFlagBits2::eAllCommands);
+      barrier.setSrcQueueFamilyIndex(transferFamilyIndex);
+      barrier.setDstQueueFamilyIndex(graphicFamilyIndex);
+      barrier.setBuffer(dstBuffer);
+      barrier.setSize(VK_WHOLE_SIZE);
+
+      vk::DependencyInfo dependencyInfo{};
+      dependencyInfo.setBufferMemoryBarriers(barrier);
+
+      buffer.pipelineBarrier2(dependencyInfo);
+    };
+    bool isSame = (m_transferQueueFamilyIndex == m_graphicQueueFamilyIndex);
+    if (isSame) {
+      immediateSubmit(transferCommand);
+    } else {
+      immediateSubmit(transferCommand, graphicCommand);
+    }
   }
 
   std::vector<raii::DescriptorSet> createDescriptorSet(
@@ -416,9 +634,21 @@ public: // Inteface
   }
 
   explicit VulkanMemory(VmaAllocatorCreateInfo const &createInfo,
-                        raii::Device *device)
+                        raii::Device *device, raii::Queue *transferQueue,
+                        raii::Queue *graphicQueue,
+                        uint32_t queueTransferFamilyIndex,
+                        uint32_t queueGraphicFamilyIndex,
+                        bool queueFamilyIndexSame)
       : m_allocator(createAllocator(createInfo)), m_pDevice(device),
-        m_descriptorPool(createDescriptorPool()) {}
+        m_descriptorPool(createDescriptorPool()),
+        m_pTransferQueue(transferQueue), m_pGraphicQueue(graphicQueue),
+        m_transferQueueFamilyIndex(queueTransferFamilyIndex),
+        m_graphicQueueFamilyIndex(queueGraphicFamilyIndex),
+        // m_commandPool(createTransferCommandPool(poolInfo)),
+        // m_commandBuffer(createCommandBuffer()),
+        m_isSameGraphicAndTransferQueue(queueFamilyIndexSame) {
+    initCmdInfo();
+  }
 
   VulkanMemory() = default;
   VulkanMemory(VulkanMemory &&) noexcept = default;
@@ -441,12 +671,102 @@ public: // Inteface
   };
   using VmaAllocatorHandle = std::unique_ptr<VmaAllocator, VmaAllocatorDeleter>;
 
+  std::vector<vk::SemaphoreSubmitInfo> signalSemaphoresSubmitInfos{};
+
 private:
   VmaAllocatorHandle m_allocator{nullptr};
 
   raii::Device *m_pDevice{nullptr};
 
   raii::DescriptorPool m_descriptorPool{nullptr};
+
+  raii::Queue *m_pTransferQueue{nullptr};
+  raii::CommandPool m_commandPool{nullptr};
+  raii::CommandBuffer m_commandBuffer{nullptr};
+
+  raii::Queue *m_pGraphicQueue{nullptr};
+  raii::CommandPool m_graphicCommandPool{nullptr};
+  raii::CommandBuffer m_graphicCommandBuffer{nullptr};
+
+  uint32_t m_graphicQueueFamilyIndex = 0;
+  uint32_t m_transferQueueFamilyIndex = 0;
+  bool m_isSameGraphicAndTransferQueue = false;
+
+  raii::Semaphore m_transferSemaphore{nullptr};
+  raii::Fence m_finishFence{nullptr};
+  std::vector<raii::Semaphore> signalSemaphores{};
+  void immediateSubmit(
+      std::function<void(vk::CommandBuffer buffer)> const &recordFunction,
+      std::function<void(vk::CommandBuffer buffer)> const
+          &recordGraphicCommand = nullptr) {
+    vk::CommandBufferBeginInfo info{};
+    // command buffer submit and reset
+    info.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+
+    m_commandBuffer.begin(info);
+
+    recordFunction(*m_commandBuffer);
+
+    m_commandBuffer.end();
+
+    vk::SubmitInfo2 submitInfo{};
+
+    vk::CommandBufferSubmitInfo comandSubmitInfo{.commandBuffer =
+                                                     *m_commandBuffer};
+
+    submitInfo.setCommandBufferInfos(comandSubmitInfo);
+
+    vk::SemaphoreSubmitInfo semaphoreInfo{};
+    semaphoreInfo.setSemaphore(*m_transferSemaphore);
+    semaphoreInfo.setStageMask(vk::PipelineStageFlagBits2::eAllCommands);
+
+    if (recordGraphicCommand) {
+
+      submitInfo.setSignalSemaphoreInfos(semaphoreInfo);
+    }
+
+    if (recordGraphicCommand) {
+      m_pTransferQueue->submit2(submitInfo);
+    } else {
+      m_pTransferQueue->submit2(submitInfo, *m_finishFence);
+    }
+
+    if (recordGraphicCommand) {
+      vk::CommandBufferBeginInfo graphicInfo{};
+      graphicInfo.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+      m_graphicCommandBuffer.begin(graphicInfo);
+      recordGraphicCommand(*m_graphicCommandBuffer);
+      m_graphicCommandBuffer.end();
+
+      vk::SubmitInfo2 graphicSubmitInfo{};
+      vk::CommandBufferSubmitInfo graphicComandSubmitInfo{.commandBuffer =
+                                                              *m_graphicCommandBuffer};
+
+      graphicSubmitInfo.setCommandBufferInfos(graphicComandSubmitInfo);
+
+      vk::SemaphoreSubmitInfo graphicSemaphoreInfo{};
+      graphicSemaphoreInfo.setSemaphore(*m_transferSemaphore);
+      graphicSemaphoreInfo.setStageMask(
+          vk::PipelineStageFlagBits2::eAllCommands);
+      graphicSubmitInfo.setWaitSemaphoreInfos(semaphoreInfo);
+      m_pGraphicQueue->submit2(graphicSubmitInfo, *m_finishFence);
+    }
+
+    using namespace std::chrono_literals;
+    auto onesecond = std::chrono::nanoseconds(600s);
+
+    auto result =
+        m_pDevice->waitForFences(*m_finishFence, VK_TRUE, onesecond.count());
+    if (result == vk::Result::eTimeout) {
+      App::ThrowException("copy to device memory timeout");
+    }
+    m_pDevice->resetFences(*m_finishFence);
+
+    (**m_pDevice).resetCommandPool(*m_commandPool);
+    if (recordGraphicCommand) {
+      (**m_pDevice).resetCommandPool(*m_graphicCommandPool);
+    }
+  }
 
   raii::DescriptorPool createDescriptorPool() {
 
@@ -471,6 +791,57 @@ private:
 
     return VmaAllocatorHandle(allocator);
   }
+
+  // 设置command相关
+  void initCmdInfo() {
+    vk::CommandPoolCreateInfo transferPoolInfo{};
+    transferPoolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
+    transferPoolInfo.queueFamilyIndex = m_transferQueueFamilyIndex;
+
+    m_commandPool = m_pDevice->createCommandPool(transferPoolInfo);
+
+    vk::CommandBufferAllocateInfo info{};
+    info.setCommandPool(*m_commandPool);
+    info.setCommandBufferCount(1);
+    info.setLevel(vk::CommandBufferLevel::ePrimary);
+    auto buffers = m_pDevice->allocateCommandBuffers(info);
+    m_commandBuffer = std::move(buffers[0]);
+
+    if (m_transferQueueFamilyIndex != m_graphicQueueFamilyIndex) {
+      vk::CommandPoolCreateInfo graphicPoolInfo{};
+      graphicPoolInfo.flags =
+          vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
+      graphicPoolInfo.queueFamilyIndex = m_graphicQueueFamilyIndex;
+
+      m_graphicCommandPool = m_pDevice->createCommandPool(graphicPoolInfo);
+
+      vk::CommandBufferAllocateInfo graphicInfo{};
+      graphicInfo.setCommandPool(*m_graphicCommandPool);
+      graphicInfo.setCommandBufferCount(1);
+      graphicInfo.setLevel(vk::CommandBufferLevel::ePrimary);
+      auto graphicbuffers = m_pDevice->allocateCommandBuffers(graphicInfo);
+      m_graphicCommandBuffer = std::move(graphicbuffers[0]);
+    }
+
+    vk::SemaphoreCreateInfo seamphoreInfo{};
+
+    m_transferSemaphore = m_pDevice->createSemaphore(seamphoreInfo);
+    vk::FenceCreateInfo fenceInfo{};
+    m_finishFence = m_pDevice->createFence(fenceInfo);
+  }
+
+  // raii::CommandPool
+  // createTransferCommandPool(vk::CommandPoolCreateInfo const &info) {
+  //   m_commandPool = m_pDevice->createCommandPool(info);
+  // }
+  // raii::CommandBuffer createCommandBuffer() {
+  //   vk::CommandBufferAllocateInfo info{};
+  //   info.setCommandPool(*m_commandPool);
+  //   info.setCommandBufferCount(1);
+  //   info.setLevel(vk::CommandBufferLevel::ePrimary);
+  //   auto buffers = m_pDevice->allocateCommandBuffers(info);
+  //   return std::move(buffers[0]);
+  // }
 };
 
 // 资源管理职责负责加载各种资源,管理各种资源。

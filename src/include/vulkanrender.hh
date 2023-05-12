@@ -63,17 +63,16 @@ struct CommandBufferDeleter {
 using CommandBufferPointer =
     std::unique_ptr<raii::CommandBuffer, CommandBufferDeleter>;
 
-
 class VulkanRender {
 public:
-  explicit VulkanRender(std::string path, App::Extent2D renderSize, std::string appName,
-                        uint32_t appVersion, std::string engineName,
-                        uint32_t engineVersion)
-      : m_programRootPath(std::move(path)),m_renderSize(renderSize), m_appName(std::move(appName)),
-        m_appVersion(appVersion), m_engineName(std::move(engineName)),
-        m_engineVersion(engineVersion) {}
+  explicit VulkanRender(std::string path, App::Extent2D renderSize,
+                        std::string appName, uint32_t appVersion,
+                        std::string engineName, uint32_t engineVersion)
+      : m_programRootPath(std::move(path)), m_renderSize(renderSize),
+        m_appName(std::move(appName)), m_appVersion(appVersion),
+        m_engineName(std::move(engineName)), m_engineVersion(engineVersion) {}
 
-  VulkanRender(VulkanRender &&) noexcept =default;
+  VulkanRender(VulkanRender &&) noexcept = default;
   VulkanRender(VulkanRender const &) = delete;
   VulkanRender &operator=(const VulkanRender &other) = delete;
   VulkanRender &operator=(VulkanRender &&other) = delete;
@@ -86,7 +85,7 @@ public:
 
   void initOthers(const VkSurfaceKHR &surface);
   VkInstance getVulkanInstance() { return *m_instance; }
-  App::VulkanMemory *getVulkanMemory() { return &m_vulkanMemory; }
+  App::VulkanMemory *getVulkanMemory() { return m_vulkanMemory.get(); }
   App::PipelineFactory *getPipelineFactory() { return m_pipelineFactory.get(); }
 
   void waitDrawClean();
@@ -97,7 +96,7 @@ public:
     return m_perFrameTime;
   }
 
-  ~VulkanRender() noexcept ;
+  ~VulkanRender() noexcept;
 
 private:
   void initVulkan(const VkSurfaceKHR &surface);
@@ -123,7 +122,6 @@ private:
   void initPipelineFactory();
 
   void createRenderTarget();
-
 
   void createSurface(const VkSurfaceKHR &surface);
 
@@ -184,8 +182,10 @@ private:
   std::unique_ptr<raii::Device> m_pDevice{nullptr};
   vk::PhysicalDeviceProperties m_gpuProperties{};
 
-  raii::Queue m_graphicsQueue{nullptr};
-  raii::Queue m_presentQueue{nullptr};
+  App::QueueFamilyIndices m_queueFamilyIndices;
+  std::unique_ptr<raii::Queue> m_graphicsQueue{nullptr};
+  std::unique_ptr<raii::Queue> m_presentQueue{nullptr};
+  std::unique_ptr<raii::Queue> m_transferQueue{nullptr};
 
   // App::GPUSceneData m_sceneParameters;
   // App::VulkanBufferHandle m_sceneParaBuffer{nullptr};
@@ -201,7 +201,7 @@ private:
   // raii::Pipeline m_graphicsPipeline{nullptr};
   std::unique_ptr<App::PipelineFactory> m_pipelineFactory{nullptr};
 
-  App::VulkanMemory m_vulkanMemory;
+  std::unique_ptr<App::VulkanMemory> m_vulkanMemory;
   std::vector<App::Frame> m_frames;
 
   const std::vector<uint16_t> m_indices = {0, 1, 2, 2, 3, 0};
@@ -211,7 +211,6 @@ private:
   std::vector<std::string> m_instanceExtensions;
 
   std::optional<chrono::duration<float, std::milli>> m_perFrameTime;
-
 
   App::Extent2D m_renderSize;
 
@@ -233,5 +232,6 @@ private:
 #endif
   const std::vector<const char *> m_validationLayers = {
       "VK_LAYER_KHRONOS_validation"};
-  const std::vector<const char *> m_deviceExtensions{"VK_KHR_swapchain"};
+  const std::vector<const char *> m_deviceExtensions{"VK_KHR_swapchain",
+                                                     "VK_KHR_synchronization2"};
 };

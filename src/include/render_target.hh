@@ -9,7 +9,11 @@ namespace raii = vk::raii;
 
 struct QueueFamilyIndices {
   std::optional<uint32_t> graphicsFamily;
+  std::optional<uint32_t> graphicsQueueIndex;
   std::optional<uint32_t> presentFamily;
+  std::optional<uint32_t> presentQueueIndex;
+  std::optional<uint32_t> transferFamily;
+  std::optional<uint32_t> transferQueueIndex;
   [[nodiscard]] bool isComplete() const {
     return graphicsFamily.has_value() && presentFamily.has_value();
   }
