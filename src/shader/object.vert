@@ -31,6 +31,10 @@ cameraData;
 // }
 // sceneData;
 
+layout(std140,set = 1,binding=0) readonly buffer  ObjectData{
+    mat4 modelMatrix[];
+} objectData;
+
 layout(push_constant) uniform constants {
   vec4 data;
   mat4 renderMatrix;
@@ -38,9 +42,9 @@ layout(push_constant) uniform constants {
 pushConstants;
 
 const vec3 positions[3] = vec3[3](
-    vec3(8.f,8.f, 0.0f),
-    vec3(-8.f,8.f, 0.0f),
-    vec3(8.f,-8.f, 0.0f)
+    vec3(1.f,1.f, 0.0f),
+    vec3(-1.f,1.f, 0.0f),
+    vec3(1.f,-1.f, 0.0f)
     );
 const vec3 colors[3] = vec3[3](
     vec3(1.0f, 0.0f, 0.0f), //red
@@ -51,14 +55,11 @@ const vec3 colors[3] = vec3[3](
 void main() {
 
   // output the position of each vertex
-  mat4 transformMatrix = cameraData.viewProj * pushConstants.renderMatrix;
+   mat4 transformMatrix = cameraData.viewProj * objectData.modelMatrix[gl_InstanceIndex];
+   // mat4 transformMatrix = cameraData.viewProj;
   gl_Position = transformMatrix * vec4(inPosition, 1.0f);
   // gl_Position = vec4(inPosition, 1.0f);
-    // gl_Position= transformMatrix* vec4(positions[gl_VertexIndex%3],1);
+     // gl_Position= transformMatrix* vec4(positions[gl_VertexIndex%3],1);
   vertexColor= colors[gl_VertexIndex%3];
-  // vertexColor = vec3(1,1,1);
-  // gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPosition, 0.0, 1.0);
-  // gl_Position = vec4(inPosition, 0.0, 1.0);
-  // fragColor = inColor;
-  // fragTexCoord = inTexCoord;
+
 }

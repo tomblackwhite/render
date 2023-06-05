@@ -3,6 +3,9 @@
 #include <cassert>
 #include <cmath>
 #include <concepts>
+#include <numeric>
+#include <set>
+#include <unordered_set>
 // #include <boost/preprocessor/seq.hpp>
 // #include <boost/preprocessor/variadic.hpp>
 #include <cstddef>
@@ -35,6 +38,7 @@ using std::string;
 // can be used in vram
 namespace App {
 
+namespace views = std::views;
 namespace raii = vk::raii;
 using key = std::string;
 
@@ -65,16 +69,6 @@ template <typename T> struct VmaDeleter {
 
 using VulkanBufferHandle = std::unique_ptr<VkBuffer, VmaDeleter<VkBuffer>>;
 using VulkanImageHandle = std::unique_ptr<VkImage, VmaDeleter<VkImage>>;
-
-class Texture {
-public:
-  Texture(vk::Device device, const string &path) : m_device(device) {}
-
-private:
-  void LoadImageFromFileToTexture(std::string const &path);
-
-  vk::Device m_device;
-};
 
 struct VertexInputDescription {
   std::vector<vk::VertexInputBindingDescription> bindings;
@@ -143,6 +137,63 @@ struct GPUObjectData {
 // 现在假设所有mesh中的indexType全部为16位。如果不是会不加载。打log;
 using IndexType = uint16_t;
 
+struct Image {
+
+  vk::Format format;
+
+  vk::Extent3D extent;
+
+  std::span<unsigned char> data;
+  VulkanImageHandle image;
+};
+
+struct Texture {
+  // coordIndex in TexCoord
+  using ImageIterator = std::vector<Image>::iterator;
+
+  uint32_t coordIndex = 0;
+  vk::Format format;
+  vk::Filter magFilter = vk::Filter::eLinear;
+  vk::Filter minFilter = vk::Filter::eLinear;
+
+  ImageIterator imageIterator{};
+  raii::ImageView imageView{nullptr};
+  vk::Sampler sampler{nullptr};
+};
+
+struct Material {
+
+  using TextureIterator = std::vector<Texture>::iterator;
+
+  struct PBRMetallicRoughness {
+
+    TextureIterator baseColorTexture{};
+    glm::vec4 baseColorFactor{1.0, 1.0, 1.0, 1.0};
+    uint32_t baseColorCoordIndex = 0;
+
+    TextureIterator metallicRoughnessTexture{};
+    uint32_t metallicRoughnessCoordIndex = 0;
+
+    float metallicFactor = 1.0;
+    float roughnessFactor = 1.0;
+  };
+
+  PBRMetallicRoughness pbr;
+
+  raii::DescriptorSet textureSet{nullptr};
+};
+
+// VertexBuffer Struct
+struct GPUMeshBlock {
+  VulkanBufferHandle indexBuffer;
+  std::vector<VulkanBufferHandle> buffers;
+  VulkanBufferHandle objectBuffer;
+
+
+  std::vector<vk::DeviceSize> objectOffsets;
+
+  // VertexInputDescription inputDescription;
+};
 // Mesh
 struct Mesh {
 
@@ -156,6 +207,8 @@ struct Mesh {
 
   using PositionType = glm::tvec3<float>;
   using NormalType = glm::tvec3<float>;
+  using TextureCoordinate = glm::tvec2<float>;
+
   struct SubMesh {
     // 小端系统可以直接取值使用。大端需要做转换，主要是因为vulkan使用的小端。
     // gltf小端。这是直接把buffer里的对象解释为c++对象。所以大端解释其中标量的含义
@@ -167,20 +220,23 @@ struct Mesh {
     // 法向
     std::span<NormalType> normals;
 
+    // 材质坐标
+    std::vector<std::span<TextureCoordinate>> texCoords;
+
+    // 材质
+    Material *material{nullptr};
+
     // 顶点索引
     IndexSpanType indices;
     static VertexInputDescription getVertexDescription();
   };
 
   std::vector<SubMesh> subMeshs;
+  // VertexBuffer vertexBuffer;
 };
 
-// VertexBuffer Struct
-struct VertexBuffer {
-  VulkanBufferHandle indexBuffer;
-  std::vector<VulkanBufferHandle> buffers;
-  // VertexInputDescription inputDescription;
-};
+using MeshShowMap = std::map<Mesh *, std::vector<glm::mat4>>;
+
 class VulkanMemory {
 public: // Inteface
   [[nodiscard]] VulkanBufferHandle
@@ -223,10 +279,10 @@ public: // Inteface
   // 现在假设所有mesh中的indexType全部为16位。如果不是会不加载。打log;
   template <ranges::input_range T>
     requires std::same_as<ranges::range_value_t<T>, Mesh>
-  VertexBuffer uploadMeshes(T &&meshes) {
+  GPUMeshBlock uploadMeshes(T &&meshes) {
 
     if (ranges::size(meshes) == 0) {
-      return VertexBuffer{};
+      return GPUMeshBlock{};
     }
     // 用于绑定vertexBuffer
     std::vector<Mesh::IndexSpanType> indices;
@@ -250,7 +306,7 @@ public: // Inteface
     }
     meshSize = indexBufferSize + positionBufferSize + normalBufferSize;
 
-    VertexBuffer vertexBuffer;
+    GPUMeshBlock vertexBuffer;
     // 创建buffer
     VmaAllocationCreateInfo allocationInfo = {};
     allocationInfo.usage = VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
@@ -283,13 +339,19 @@ public: // Inteface
   }
 
   // 现在假设所有mesh中的indexType全部为16位。如果不是会不加载。打log;
-  template <ranges::input_range T>
-    requires std::same_as<ranges::range_value_t<T>, Mesh>
-  VertexBuffer uploadMeshesByTransfer(T &&meshes) {
+  template <ranges::input_range T, ranges::input_range U>
+    requires std::same_as<ranges::range_value_t<T>, Mesh *> &&
+             std::same_as<ranges::range_value_t<U>, Image *>
+  GPUMeshBlock uploadMeshesByTransfer(T &&meshes, U &&images,
+                                      MeshShowMap &meshShowMap) {
 
     if (ranges::size(meshes) == 0) {
-      return VertexBuffer{};
+      return GPUMeshBlock{};
     }
+
+    GPUMeshBlock vertexBuffer;
+    GPUMeshBlock transferBuffer;
+
     // 用于绑定vertexBuffer
     std::vector<Mesh::IndexSpanType> indices;
     vk::DeviceSize indexBufferSize = 0;
@@ -298,22 +360,74 @@ public: // Inteface
     std::vector<std::span<Mesh::NormalType>> normals;
     vk::DeviceSize normalBufferSize = 0;
 
+    std::vector<std::vector<std::span<Mesh::TextureCoordinate>>> coordinates;
+    vk::DeviceSize coordinatesBufferSize = 0;
+
+    std::vector<std::span<glm::mat4>> objects;
+    vk::DeviceSize objectBufferSize = 0;
+    vk::DeviceSize objectOffset = 0;
+
     // 获取mesh大小。
     vk::DeviceSize meshSize = 0;
-    for (auto &mesh : meshes) {
-      for (auto &subMesh : mesh.subMeshs) {
+
+    for (auto &[mesh, objectMatrice] : meshShowMap) {
+      for (Mesh::SubMesh &subMesh : mesh->subMeshs) {
         indexBufferSize += subMesh.indices.size_bytes();
         indices.push_back(subMesh.indices);
         positionBufferSize += subMesh.positions.size_bytes();
         positions.push_back(subMesh.positions);
         normalBufferSize += subMesh.normals.size_bytes();
         normals.push_back(subMesh.normals);
+
+        coordinates.push_back(subMesh.texCoords);
+        coordinatesBufferSize +=
+            std::accumulate(subMesh.texCoords.begin(), subMesh.texCoords.end(),
+                            static_cast<vk::DeviceSize>(0),
+                            [](vk::DeviceSize count, auto &right) {
+                              return count + right.size_bytes();
+                            });
       }
+
+      std::span<glm::mat4> object{objectMatrice};
+      vertexBuffer.objectOffsets.push_back(objectOffset);
+      auto objectSize = object.size_bytes();
+      auto padObjectSize = getUniformPadSize(objectSize);
+      objectBufferSize += padObjectSize;
+      objectOffset += padObjectSize;
+      objects.push_back(object);
     }
+
+    vk::DeviceSize imageBufferSize = std::accumulate(
+        images.begin(), images.end(), static_cast<vk::DeviceSize>(0),
+        [](vk::DeviceSize count, Image *right) {
+          return count + right->data.size_bytes();
+        });
+
+    auto imageTransferBufferHandle = uploadToTransfer(
+        imageBufferSize,
+        ranges::views::all(images) |
+            views::transform([](Image *image) { return image->data; }));
+    vk::ImageCreateInfo imageInfo{};
+    imageInfo.setImageType(vk::ImageType::e2D);
+    imageInfo.setMipLevels(1);
+    imageInfo.setArrayLayers(1);
+    imageInfo.setSamples(vk::SampleCountFlagBits::e1);
+    imageInfo.setTiling(vk::ImageTiling::eOptimal);
+    imageInfo.setUsage(vk::ImageUsageFlagBits::eSampled |
+                       vk::ImageUsageFlagBits::eTransferDst);
+    imageInfo.setSharingMode(vk::SharingMode::eExclusive);
+    imageInfo.setInitialLayout(vk::ImageLayout::eUndefined);
+    VmaAllocationCreateInfo imageAllocationInfo{};
+    imageAllocationInfo.usage =
+        VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    for (auto *image : images) {
+      imageInfo.setFormat(image->format);
+      imageInfo.setExtent(image->extent);
+      image->image = createImage(imageInfo, imageAllocationInfo);
+    }
+
     meshSize = indexBufferSize + positionBufferSize + normalBufferSize;
 
-    VertexBuffer vertexBuffer;
-    VertexBuffer transferBuffer;
     // vertexBuffer.inputDescription = Mesh::SubMesh::getVertexDescription();
     // 创建buffer
     VmaAllocationCreateInfo allocationInfo = {};
@@ -326,33 +440,132 @@ public: // Inteface
     auto indexBuffer = createBuffer(indexBufferInfo, allocationInfo);
     vertexBuffer.indexBuffer = std::move(indexBuffer);
     transferBuffer.indexBuffer =
-        uploadToTransfer(indexBuffer, ranges::views::all(indices));
+        uploadToTransfer(indexBufferSize, ranges::views::all(indices));
 
     vk::BufferCreateInfo positionBufferInfo = {
         .size = positionBufferSize,
         .usage = vk::BufferUsageFlagBits::eVertexBuffer |
                  vk::BufferUsageFlagBits::eTransferDst};
-
     auto positionBuffer = createBuffer(positionBufferInfo, allocationInfo);
     transferBuffer.buffers.push_back(
-        uploadToTransfer(positionBuffer, ranges::views::all(positions)));
+        uploadToTransfer(positionBufferSize, ranges::views::all(positions)));
     vertexBuffer.buffers.push_back(std::move(positionBuffer));
 
     vk::BufferCreateInfo normalBufferInfo = {
-        .size = positionBufferSize,
+        .size = normalBufferSize,
         .usage = vk::BufferUsageFlagBits::eVertexBuffer |
                  vk::BufferUsageFlagBits::eTransferDst};
     auto normalBuffer = createBuffer(normalBufferInfo, allocationInfo);
     transferBuffer.buffers.push_back(
-        uploadToTransfer(normalBuffer, ranges::views::all(normals)));
+        uploadToTransfer(normalBufferSize, ranges::views::all(normals)));
     vertexBuffer.buffers.push_back(std::move(normalBuffer));
 
-    auto transferCommand = [&vertexBuffer, &transferBuffer,
+    vk::BufferCreateInfo texCoordBufferInfo = {
+        .size = coordinatesBufferSize,
+        .usage = vk::BufferUsageFlagBits::eVertexBuffer |
+                 vk::BufferUsageFlagBits::eTransferDst};
+    auto texCoordBuffer = createBuffer(texCoordBufferInfo, allocationInfo);
+    transferBuffer.buffers.push_back(uploadToTransfer(
+        coordinatesBufferSize, ranges::views::join(coordinates)));
+    vertexBuffer.buffers.push_back(std::move(texCoordBuffer));
+
+    vk::BufferCreateInfo objectBufferInfo = {
+        .size = objectBufferSize,
+        .usage = vk::BufferUsageFlagBits::eStorageBuffer |
+                 vk::BufferUsageFlagBits::eTransferDst};
+    auto objectBuffer = createBuffer(objectBufferInfo, allocationInfo);
+    transferBuffer.objectBuffer =
+        uploadToTransfer(objectBufferSize, ranges::views::all(objects),
+                         &vertexBuffer.objectOffsets);
+    vertexBuffer.objectBuffer = std::move(objectBuffer);
+
+    auto transferCommand = [&vertexBuffer, &transferBuffer, &images,
+                            &imageTransferBufferHandle,
                             graphicFamilyIndex = m_graphicQueueFamilyIndex,
                             transferFamilyIndex = m_transferQueueFamilyIndex](
                                vk::CommandBuffer commandBuffer) {
-      std::vector<vk::BufferMemoryBarrier2> barriers{};
       bool isSame = (graphicFamilyIndex == transferFamilyIndex);
+      // image transfer
+      vk::ImageSubresourceRange range{};
+      range.setAspectMask(vk::ImageAspectFlagBits::eColor);
+      range.setBaseMipLevel(0);
+      range.setLevelCount(1);
+      range.setBaseArrayLayer(0);
+      range.setLayerCount(1);
+
+      std::vector<vk::ImageMemoryBarrier2> imageTransitionBarriers{};
+      imageTransitionBarriers.reserve(images.size());
+
+      // std::vector<vk::BufferImageCopy2> bufferImageCopys{};
+      // bufferImageCopys.reserve(images.size());
+
+      for (auto *image : images) {
+        vk::ImageMemoryBarrier2 imageTransitionBarrier{};
+        imageTransitionBarrier.setSrcStageMask(
+            vk::PipelineStageFlagBits2::eNone);
+        imageTransitionBarrier.setSrcAccessMask(vk::AccessFlagBits2::eNone);
+        imageTransitionBarrier.setDstStageMask(
+            vk::PipelineStageFlagBits2::eTransfer);
+        imageTransitionBarrier.setDstAccessMask(
+            vk::AccessFlagBits2::eTransferWrite);
+        imageTransitionBarrier.setOldLayout(vk::ImageLayout::eUndefined);
+        imageTransitionBarrier.setNewLayout(
+            vk::ImageLayout::eTransferDstOptimal);
+        imageTransitionBarrier.setImage(image->image.get());
+        imageTransitionBarrier.setSubresourceRange(range);
+        imageTransitionBarriers.push_back(imageTransitionBarrier);
+      }
+
+      vk::DependencyInfo imageBarrierDencyInfo{};
+      imageBarrierDencyInfo.setImageMemoryBarriers(imageTransitionBarriers);
+      commandBuffer.pipelineBarrier2(imageBarrierDencyInfo);
+
+      vk::BufferImageCopy2 imageCopy{};
+      imageCopy.setBufferRowLength(0);
+      imageCopy.setBufferImageHeight(0);
+      vk::ImageSubresourceLayers layer{};
+      layer.setAspectMask(vk::ImageAspectFlagBits::eColor);
+      layer.setMipLevel(0);
+      layer.setLayerCount(1);
+      layer.setBaseArrayLayer(0);
+      imageCopy.setImageSubresource(layer);
+      imageCopy.setImageOffset({0, 0, 0});
+
+      vk::CopyBufferToImageInfo2 copyBufferToImageInfo{};
+      copyBufferToImageInfo.setSrcBuffer(imageTransferBufferHandle.get());
+      copyBufferToImageInfo.setDstImageLayout(
+          vk::ImageLayout::eTransferDstOptimal);
+      copyBufferToImageInfo.setRegions(imageCopy);
+
+      vk::DeviceSize imageBufferOffset = 0;
+      std::vector<vk::ImageMemoryBarrier2> imageTransferBarriers{};
+      for (auto *image : images) {
+        imageCopy.setBufferOffset(imageBufferOffset);
+        imageCopy.setImageExtent(image->extent);
+        imageBufferOffset += image->data.size_bytes();
+        copyBufferToImageInfo.setDstImage(image->image.get());
+        commandBuffer.copyBufferToImage2(copyBufferToImageInfo);
+
+        if (!isSame) {
+          vk::ImageMemoryBarrier2 imageTransferBarrier{};
+          imageTransferBarrier.setSrcAccessMask(
+              vk::AccessFlagBits2::eTransferWrite);
+          imageTransferBarrier.setSrcStageMask(
+              vk::PipelineStageFlagBits2::eTransfer);
+          imageTransferBarrier.setSrcQueueFamilyIndex(transferFamilyIndex);
+          imageTransferBarrier.setDstQueueFamilyIndex(graphicFamilyIndex);
+          imageTransferBarrier.setOldLayout(
+              vk::ImageLayout::eTransferDstOptimal);
+          imageTransferBarrier.setNewLayout(
+              vk::ImageLayout::eShaderReadOnlyOptimal);
+          imageTransferBarrier.setImage(image->image.get());
+          imageTransferBarrier.setSubresourceRange(range);
+          imageTransferBarriers.push_back(imageTransferBarrier);
+        }
+      }
+
+      // vertex transfer
+      std::vector<vk::BufferMemoryBarrier2> barriers{};
 
       vk::CopyBufferInfo2 copyInfo2{};
       copyInfo2.setSrcBuffer(transferBuffer.indexBuffer.get());
@@ -362,6 +575,15 @@ public: // Inteface
       region.setSize(indexSize);
       copyInfo2.setRegions(region);
       commandBuffer.copyBuffer2(copyInfo2);
+
+      vk::CopyBufferInfo2 objectInfo2{};
+      objectInfo2.setSrcBuffer(transferBuffer.objectBuffer.get());
+      objectInfo2.setDstBuffer(vertexBuffer.objectBuffer.get());
+      auto objectSize = vertexBuffer.objectBuffer.get_deleter().m_size;
+      vk::BufferCopy2 objectRegion{.size=objectSize};
+      objectInfo2.setRegions(objectRegion);
+      commandBuffer.copyBuffer2(objectInfo2);
+
       if (!isSame) {
         vk::BufferMemoryBarrier2 barrier{};
         barrier.setSrcAccessMask(vk::AccessFlagBits2::eTransferWrite);
@@ -370,6 +592,8 @@ public: // Inteface
         barrier.setDstQueueFamilyIndex(graphicFamilyIndex);
         barrier.buffer = vertexBuffer.indexBuffer.get();
         barrier.setSize(VK_WHOLE_SIZE);
+        barriers.push_back(barrier);
+        barrier.setBuffer(vertexBuffer.objectBuffer.get());
         barriers.push_back(barrier);
       }
 
@@ -399,13 +623,39 @@ public: // Inteface
 
         vk::DependencyInfo depencyInfo{};
         depencyInfo.setBufferMemoryBarriers(barriers);
+        depencyInfo.setImageMemoryBarriers(imageTransferBarriers);
         commandBuffer.pipelineBarrier2(depencyInfo);
       }
     };
-    auto graphicCommand = [&vertexBuffer, &transferBuffer,
+    auto graphicCommand = [&vertexBuffer, &images,
                            graphicFamilyIndex = m_graphicQueueFamilyIndex,
                            transferFamilyIndex = m_transferQueueFamilyIndex](
                               vk::CommandBuffer commandBuffer) {
+      std::vector<vk::ImageMemoryBarrier2> imageTransferBarriers{};
+
+      vk::ImageSubresourceRange range{};
+      range.setAspectMask(vk::ImageAspectFlagBits::eColor);
+      range.setBaseMipLevel(0);
+      range.setLevelCount(1);
+      range.setBaseArrayLayer(0);
+      range.setLayerCount(1);
+
+      for (auto *image : images) {
+        vk::ImageMemoryBarrier2 imageTransferBarrier{};
+        imageTransferBarrier.setDstAccessMask(vk::AccessFlagBits2::eShaderRead);
+        imageTransferBarrier.setDstStageMask(
+            vk::PipelineStageFlagBits2::eFragmentShader);
+        imageTransferBarrier.setSrcQueueFamilyIndex(transferFamilyIndex);
+        imageTransferBarrier.setDstQueueFamilyIndex(graphicFamilyIndex);
+        imageTransferBarrier.setOldLayout(vk::ImageLayout::eTransferDstOptimal);
+        imageTransferBarrier.setNewLayout(
+            vk::ImageLayout::eShaderReadOnlyOptimal);
+        imageTransferBarrier.setImage(image->image.get());
+        imageTransferBarrier.setSubresourceRange(range);
+        imageTransferBarriers.push_back(imageTransferBarrier);
+      }
+
+      // memory acquire
       std::vector<vk::BufferMemoryBarrier2> barriers{};
       vk::BufferMemoryBarrier2 barrier{};
       barrier.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead);
@@ -414,6 +664,8 @@ public: // Inteface
       barrier.setDstQueueFamilyIndex(graphicFamilyIndex);
       barrier.buffer = vertexBuffer.indexBuffer.get();
       barrier.setSize(VK_WHOLE_SIZE);
+      barriers.push_back(barrier);
+      barrier.setBuffer(vertexBuffer.objectBuffer.get());
       barriers.push_back(barrier);
 
       for (auto i = 0uz; i < vertexBuffer.buffers.size(); ++i) {
@@ -426,8 +678,10 @@ public: // Inteface
         barrier.setSize(VK_WHOLE_SIZE);
         barriers.push_back(barrier);
       }
+
       vk::DependencyInfo depencyInfo{};
       depencyInfo.setBufferMemoryBarriers(barriers);
+      depencyInfo.setImageMemoryBarriers(imageTransferBarriers);
       commandBuffer.pipelineBarrier2(depencyInfo);
     };
 
@@ -477,11 +731,8 @@ public: // Inteface
         ranges::range_value_t<View>,
         std::span<typename ranges::range_value_t<View>::element_type>>
   [[nodiscard("transferBuffer return")]] VulkanBufferHandle
-  uploadToTransfer(VulkanBufferHandle const &handle, View buffers) {
-
-    auto deleter = handle.get_deleter();
-    auto *alloction = deleter.m_allocation;
-    auto size = deleter.m_size;
+  uploadToTransfer(vk::DeviceSize size, View buffers,
+                   std::vector<vk::DeviceSize> *offsets = nullptr) {
 
     vk::BufferCreateInfo info{};
     info.setSize(size);
@@ -503,11 +754,23 @@ public: // Inteface
 
     App::VulkanCheck(vmaMapMemory(m_allocator.get(), transferAllocation, &data),
                      "map error");
-    for (auto &buffer : buffers) {
-      std::memcpy(data, buffer.data(), buffer.size_bytes());
-      auto *nextAddr = static_cast<unsigned char *>(data);
-      nextAddr += buffer.size_bytes();
-      data = nextAddr;
+    if (offsets == nullptr) {
+
+      for (auto buffer : buffers) {
+        std::memcpy(data, buffer.data(), buffer.size_bytes());
+        auto *nextAddr = static_cast<unsigned char *>(data);
+        nextAddr += buffer.size_bytes();
+        data = nextAddr;
+      }
+    } else {
+      std::size_t offsetIndex = 0;
+      for (auto buffer : buffers) {
+        auto *addr = static_cast<unsigned char *>(data);
+        addr += offsets->at(offsetIndex);
+        data = addr;
+        std::memcpy(data, buffer.data(), buffer.size_bytes());
+        ++offsetIndex;
+      }
     }
     vmaUnmapMemory(m_allocator.get(), transferAllocation);
 
@@ -521,42 +784,10 @@ public: // Inteface
         std::span<typename ranges::range_value_t<View>::element_type>>
   void uploadByTransfer(VulkanBufferHandle const &handle, View buffers) {
 
-    auto transferBuffer = uploadToTransfer(handle, buffers);
-
     auto deleter = handle.get_deleter();
     auto *alloction = deleter.m_allocation;
     auto size = deleter.m_size;
-
-    // vk::BufferCreateInfo info{};
-    // info.setSize(size);
-    // info.setSharingMode(vk::SharingMode::eExclusive);
-    // info.setUsage(vk::BufferUsageFlagBits::eTransferSrc);
-
-    // // 创建 transferBuffer
-    // VmaAllocationCreateInfo allocationInfo = {};
-    // allocationInfo.usage = VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO;
-    // allocationInfo.flags = VmaAllocationCreateFlagBits::
-    //     VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-
-    // auto transferBuffer = createBuffer(info, allocationInfo);
-
-    // auto transferDeleter = transferBuffer.get_deleter();
-    // auto *transferAllocation = transferDeleter.m_allocation;
-
-    // void *data = nullptr;
-
-    // App::VulkanCheck(vmaMapMemory(m_allocator.get(), transferAllocation,
-    // &data),
-    //                  "map error");
-    // for (auto &buffer : buffers) {
-    //   std::memcpy(data, buffer.data(), buffer.size_bytes());
-    //   auto *nextAddr = static_cast<unsigned char *>(data);
-    //   nextAddr += buffer.size_bytes();
-    //   data = nextAddr;
-    // }
-    // vmaUnmapMemory(m_allocator.get(), transferAllocation);
-
-    // return transferBuffer;
+    auto transferBuffer = uploadToTransfer(size, buffers);
 
     auto transferCommand = [size, srcBuffer = transferBuffer.get(),
                             dstBuffer = handle.get(),
@@ -638,7 +869,7 @@ public: // Inteface
                         raii::Queue *graphicQueue,
                         uint32_t queueTransferFamilyIndex,
                         uint32_t queueGraphicFamilyIndex,
-                        bool queueFamilyIndexSame)
+                        bool queueFamilyIndexSame, vk::DeviceSize alignment)
       : m_allocator(createAllocator(createInfo)), m_pDevice(device),
         m_descriptorPool(createDescriptorPool()),
         m_pTransferQueue(transferQueue), m_pGraphicQueue(graphicQueue),
@@ -646,7 +877,8 @@ public: // Inteface
         m_graphicQueueFamilyIndex(queueGraphicFamilyIndex),
         // m_commandPool(createTransferCommandPool(poolInfo)),
         // m_commandBuffer(createCommandBuffer()),
-        m_isSameGraphicAndTransferQueue(queueFamilyIndexSame) {
+        m_isSameGraphicAndTransferQueue(queueFamilyIndexSame),
+        m_minUniformBufferOffsetAlignment(alignment) {
     initCmdInfo();
   }
 
@@ -673,10 +905,10 @@ public: // Inteface
 
   std::vector<vk::SemaphoreSubmitInfo> signalSemaphoresSubmitInfos{};
 
+  raii::Device *m_pDevice{nullptr};
+
 private:
   VmaAllocatorHandle m_allocator{nullptr};
-
-  raii::Device *m_pDevice{nullptr};
 
   raii::DescriptorPool m_descriptorPool{nullptr};
 
@@ -691,6 +923,8 @@ private:
   uint32_t m_graphicQueueFamilyIndex = 0;
   uint32_t m_transferQueueFamilyIndex = 0;
   bool m_isSameGraphicAndTransferQueue = false;
+
+  vk::DeviceSize m_minUniformBufferOffsetAlignment = 0;
 
   raii::Semaphore m_transferSemaphore{nullptr};
   raii::Fence m_finishFence{nullptr};
@@ -739,8 +973,8 @@ private:
       m_graphicCommandBuffer.end();
 
       vk::SubmitInfo2 graphicSubmitInfo{};
-      vk::CommandBufferSubmitInfo graphicComandSubmitInfo{.commandBuffer =
-                                                              *m_graphicCommandBuffer};
+      vk::CommandBufferSubmitInfo graphicComandSubmitInfo{
+          .commandBuffer = *m_graphicCommandBuffer};
 
       graphicSubmitInfo.setCommandBufferInfos(graphicComandSubmitInfo);
 
@@ -830,18 +1064,12 @@ private:
     m_finishFence = m_pDevice->createFence(fenceInfo);
   }
 
-  // raii::CommandPool
-  // createTransferCommandPool(vk::CommandPoolCreateInfo const &info) {
-  //   m_commandPool = m_pDevice->createCommandPool(info);
-  // }
-  // raii::CommandBuffer createCommandBuffer() {
-  //   vk::CommandBufferAllocateInfo info{};
-  //   info.setCommandPool(*m_commandPool);
-  //   info.setCommandBufferCount(1);
-  //   info.setLevel(vk::CommandBufferLevel::ePrimary);
-  //   auto buffers = m_pDevice->allocateCommandBuffers(info);
-  //   return std::move(buffers[0]);
-  // }
+  vk::DeviceSize getUniformPadSize(vk::DeviceSize bufferSize) {
+    // M & (~N - 1)
+    // 由于对齐大小一定是2的倍数，所以，上式一定等于(M/N)*N,计算出补全空白大小。
+    return (bufferSize + m_minUniformBufferOffsetAlignment - 1) &
+           ~(m_minUniformBufferOffsetAlignment - 1);
+  }
 };
 
 // 资源管理职责负责加载各种资源,管理各种资源。

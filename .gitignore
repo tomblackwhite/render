@@ -37,3 +37,6 @@ build/
 compile_commands.json
 *.core
 /.ccls-cache/
+/asset/acce_c.png
+/asset/body_c.png
+/asset/*

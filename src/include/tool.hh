@@ -23,9 +23,9 @@
 
 namespace App {
 using std::string;
-namespace ranges = std::ranges;
-namespace fs = std::filesystem;
 namespace mp = boost::mp11;
+namespace fs = std::filesystem;
+namespace ranges = std::ranges;
 namespace stacktrace = boost::stacktrace;
 template <typename T, typename... U>
 concept IsAnyOf = (std::same_as<T, U> || ...);

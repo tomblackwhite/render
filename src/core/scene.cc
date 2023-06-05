@@ -1,53 +1,16 @@
-#include "scene.hh"
-#include <vector>
+#include <scene.hh>
 namespace App {
 using glm::vec3;
 using std::holds_alternative;
 using std::index_sequence;
 using std::initializer_list;
+using std::vector;
 
 SceneManager::SceneManager(VulkanMemory *memory, PipelineFactory *factory,
                            const std::string &homePath)
     : m_vulkanMemory(memory), m_pipelineFactory(factory), m_homePath(homePath),
-      m_assetManager(AssetManager::instance(homePath)) {
-
-  // 创建pipeline
-  m_scene.sceneSetLayout = m_vulkanMemory->createDescriptorSetLayout(
-      m_scene.getSceneSetLayoutInfo());
-  m_scene.pipelineLayout =
-      m_pipelineFactory->createPipelineLayout(m_scene.getPipelineLayoutInfo());
-  m_scene.pipeline =
-      m_scene.createScenePipeline(*m_pipelineFactory, m_homePath);
-
-  // 可以放在scene构造函数里，现在相当于二段初始化。
-  //  初始化scene 成员。创建cameraBuffer;
-  vk::BufferCreateInfo bufferInfo{};
-  bufferInfo.setUsage(vk::BufferUsageFlagBits::eUniformBuffer |
-                      vk::BufferUsageFlagBits::eTransferDst);
-  bufferInfo.setSize(sizeof(GPUCamera));
-  VmaAllocationCreateInfo allocationInfo{};
-  allocationInfo.usage = VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-  m_scene.cameraBuffer =
-      m_vulkanMemory->createBuffer(bufferInfo, allocationInfo);
-
-  auto sets = m_vulkanMemory->createDescriptorSet(*m_scene.sceneSetLayout);
-  m_scene.sceneSet = std::move(sets[0]);
-
-  vk::DescriptorBufferInfo descriptorBufferInfo{};
-  descriptorBufferInfo.setBuffer(m_scene.cameraBuffer.get());
-  descriptorBufferInfo.setOffset(0);
-  descriptorBufferInfo.setRange(sizeof(GPUCamera));
-
-  // 绑定descriptorSet
-  vk::WriteDescriptorSet writeSet{};
-  writeSet.setDstSet(*m_scene.sceneSet);
-  writeSet.setDstBinding(0);
-  writeSet.setDescriptorType(vk::DescriptorType::eUniformBuffer);
-  writeSet.setBufferInfo(descriptorBufferInfo);
-
-  m_vulkanMemory->updateDescriptorSets(
-      writeSet, initializer_list<vk::CopyDescriptorSet>{});
-}
+      m_assetManager(AssetManager::instance(homePath)),
+      m_scene(memory, factory, homePath) {}
 
 void SceneManager::init() {
 
@@ -143,20 +106,182 @@ void SceneManager::showScene(const string &scene) {
 
   visitNode(m_mainScene, visitor);
 
+  m_scene.meshShowMap.clear();
+
+  for (auto &[key, meshInstance] : m_scene.showMap) {
+    if (auto iter = m_scene.meshShowMap.find(meshInstance->mesh);
+        iter != m_scene.meshShowMap.end()) {
+      iter->second.push_back(meshInstance->modelMatrix);
+    } else {
+      m_scene.meshShowMap.insert(
+          {meshInstance->mesh, {meshInstance->modelMatrix}});
+    }
+  }
+
   auto meshsView =
-      views::all(m_scene.showMap) |
-      views::transform([](auto &elem) -> Mesh & { return elem.second->mesh; });
+      views::all(m_scene.meshShowMap) |
+      views::transform([](auto &elem) -> Mesh * { return elem.first; });
+  std::vector<Mesh *> meshes(meshsView.begin(), meshsView.end());
 
 #ifdef DEBUG
   // debug info
   auto meshCount = meshsView.size();
 #endif
+
   // 上传到gpu
-  m_scene.vertexBuffer = m_vulkanMemory->uploadMeshesByTransfer(meshsView);
+  std::unordered_set<Image *> images{};
+  std::unordered_set<Texture *> textures{};
+  std::unordered_set<Material *> materials{};
+
+  auto checkTexture = [&textures, &images](Material::TextureIterator iterator) {
+    if (iterator != Material::TextureIterator()) {
+      if (!*(iterator->imageView)) {
+        textures.insert(&*iterator);
+
+        if (iterator->imageIterator != Texture::ImageIterator()) {
+          if ((iterator->imageIterator->image.get()) == nullptr) {
+            images.insert(&*iterator->imageIterator);
+          }
+        }
+      }
+    }
+  };
+  for (auto *mesh : meshes) {
+
+    for (auto &subMesh : mesh->subMeshs) {
+      if (subMesh.material != nullptr) {
+        auto *material = subMesh.material;
+        if (!*(material->textureSet)) {
+          materials.insert(material);
+          auto &pbr = material->pbr;
+          checkTexture(pbr.baseColorTexture);
+          checkTexture(pbr.metallicRoughnessTexture);
+        }
+      }
+    }
+  }
+
+  m_scene.vertexBuffer = m_vulkanMemory->uploadMeshesByTransfer(
+      meshsView, images, m_scene.meshShowMap);
+
+  vk::ImageSubresourceRange imageViewRange{};
+  imageViewRange.setAspectMask(vk::ImageAspectFlagBits::eColor);
+  imageViewRange.setBaseMipLevel(0);
+  imageViewRange.setLevelCount(1);
+  imageViewRange.setBaseArrayLayer(0);
+  imageViewRange.setLayerCount(1);
+
+  vk::ImageViewCreateInfo imageViewInfo{};
+  imageViewInfo.setViewType(vk::ImageViewType::e2D);
+
+  imageViewInfo.setSubresourceRange(imageViewRange);
+
+  vk::SamplerCreateInfo samplerInfo{};
+  samplerInfo.setAddressModeU(vk::SamplerAddressMode::eRepeat);
+  samplerInfo.setAddressModeV(vk::SamplerAddressMode::eRepeat);
+  samplerInfo.setAddressModeW(vk::SamplerAddressMode::eRepeat);
+  samplerInfo.setAnisotropyEnable(VK_TRUE);
+  samplerInfo.setMaxAnisotropy(16);
+
+  for (auto *texture : textures) {
+    imageViewInfo.setImage(texture->imageIterator->image.get());
+    imageViewInfo.setFormat(texture->format);
+    texture->imageView =
+        m_vulkanMemory->m_pDevice->createImageView(imageViewInfo);
+    samplerInfo.setMagFilter(texture->magFilter);
+    samplerInfo.setMinFilter(texture->minFilter);
+
+    TextureFilter filter{.magFilter = texture->magFilter,
+                         .minFilter = texture->minFilter};
+
+    vk::Sampler sampler{nullptr};
+
+    if (auto iter = m_scene.samplerMap.find(filter);
+        iter != m_scene.samplerMap.end()) {
+      sampler = *(iter->second);
+    } else {
+
+      raii::Sampler createSampler =
+          m_vulkanMemory->m_pDevice->createSampler(samplerInfo);
+      sampler = *createSampler;
+      m_scene.samplerMap.insert_or_assign(filter, std::move(createSampler));
+    }
+
+    texture->sampler = sampler;
+  }
+
+  // auto first = textures.begin();
+
+  // imageViewInfo.setImage((*first)->imageIterator->image.get());
+  // imageViewInfo.setFormat((*first)->format);
+  // raii::ImageView testView =
+  //     m_vulkanMemory->m_pDevice->createImageView(imageViewInfo);
+
+  // vk::DescriptorImageInfo imageDescriptorInfo{
+  //     .sampler = (*first)->sampler,
+  //     .imageView = (*(*first)->imageView),
+  //     .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+
+  // 设置大小避免迭代器失效
+  std::vector<std::vector<vk::DescriptorImageInfo>> descriptorImages{};
+  descriptorImages.reserve(materials.size());
+  std::vector<vk::WriteDescriptorSet> writeSets{};
+  for (auto *material : materials) {
+    auto textureSets =
+        m_vulkanMemory->createDescriptorSet(*(m_scene.textureSetLayout));
+    material->textureSet = std::move(textureSets[0]);
+    vk::DescriptorImageInfo baseColorDescriptorInfo{};
+    baseColorDescriptorInfo.setImageLayout(
+        vk::ImageLayout::eShaderReadOnlyOptimal);
+    baseColorDescriptorInfo.setSampler(material->pbr.baseColorTexture->sampler);
+    baseColorDescriptorInfo.setImageView(
+        *(material->pbr.baseColorTexture->imageView));
+
+    vk::DescriptorImageInfo metallicRoughnessDescriptorInfo{};
+    metallicRoughnessDescriptorInfo.setImageLayout(
+        vk::ImageLayout::eShaderReadOnlyOptimal);
+
+    if (material->pbr.metallicRoughnessTexture != Material::TextureIterator()) {
+      metallicRoughnessDescriptorInfo.setSampler(
+          material->pbr.metallicRoughnessTexture->sampler);
+      metallicRoughnessDescriptorInfo.setImageView(
+          *(material->pbr.metallicRoughnessTexture->imageView));
+    }else{
+      metallicRoughnessDescriptorInfo.setSampler(material->pbr.baseColorTexture->sampler);
+    }
+
+    descriptorImages.push_back(
+        {baseColorDescriptorInfo, metallicRoughnessDescriptorInfo});
+    vk::WriteDescriptorSet writeSet{};
+    writeSet.setDstSet(*(material->textureSet));
+    writeSet.setDstBinding(0);
+    writeSet.setDescriptorCount(descriptorImages.back().size());
+    writeSet.setImageInfo(descriptorImages.back());
+    writeSet.setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
+    writeSets.push_back(writeSet);
+  }
+
+  vk::DescriptorBufferInfo descriptorBufferInfo{};
+  descriptorBufferInfo.setBuffer(m_scene.vertexBuffer.objectBuffer.get());
+  descriptorBufferInfo.setOffset(0);
+  descriptorBufferInfo.setRange(
+      m_scene.vertexBuffer.objectBuffer.get_deleter().m_size);
+
+  // 绑定descriptorSet
+  vk::WriteDescriptorSet writeSet{};
+  writeSet.setDstSet(*(m_scene.objectSet));
+  writeSet.setDstBinding(0);
+  writeSet.setDescriptorType(vk::DescriptorType::eStorageBufferDynamic);
+  writeSet.setBufferInfo(descriptorBufferInfo);
+
+
+  writeSets.push_back(writeSet);
+  m_vulkanMemory->m_pDevice->updateDescriptorSets(
+      writeSets, std::initializer_list<vk::CopyDescriptorSet>{});
 
   // 上传camera
-  m_vulkanMemory->uploadByTransfer(m_scene.cameraBuffer,
-                         views::single(std::span(&m_scene.camera, 1)));
+  m_vulkanMemory->uploadByTransfer(
+      m_scene.cameraBuffer, views::single(std::span(&m_scene.camera, 1)));
 }
 
 glm::mat4 SceneManager::getTransform(Node *node) {
@@ -198,12 +323,45 @@ void SceneFactory::createScene(AssetManager &assetManager,
 
   auto &map = container->map;
   auto &tree = container->tree;
+  auto &meshMap = container->meshMap;
+  auto &imageMap = container->imageMap;
+  auto &textureMap = container->textureMap;
+  auto &materialMap = container->materailMap;
 
   auto &model = assetManager.getScene(sceneKey);
   auto &scene = model.scenes[model.defaultScene];
 
+  auto images = std::make_unique<std::vector<Image>>();
+
+  auto *pImages = images.get();
+  for (auto &image : model.images) {
+    images->push_back(createImage(image));
+  }
+  imageMap.insert_or_assign(sceneKey, std::move(images));
+
+  auto textures = std::make_unique<std::vector<Texture>>();
+  auto *pTexture = textures.get();
+  for (auto &texture : model.textures) {
+    textures->push_back(createTexture(texture, pImages, model));
+  }
+  textureMap.insert_or_assign(sceneKey, std::move(textures));
+
+  auto materials = std::make_unique<std::vector<Material>>();
+  auto *pMaterial = materials.get();
+  for (auto &material : model.materials) {
+    materials->push_back(createMaterial(material, pTexture));
+  }
+  materialMap.insert_or_assign(sceneKey, std::move(materials));
+
+  auto meshes = std::make_unique<std::vector<Mesh>>();
+  auto *pMeshes = meshes.get();
+  for (auto &mesh : model.meshes) {
+    meshes->push_back(createMesh(mesh, model, pMaterial));
+  }
+  meshMap.insert_or_assign(sceneKey, std::move(meshes));
+
   for (auto &node : model.nodes) {
-    createNode(node, model, model.buffers, nodeFactory);
+    createNode(node, model, pMeshes, nodeFactory);
   }
   std::vector<std::string> sceneNodes;
   // 递归构建Node Tree
@@ -220,17 +378,17 @@ void SceneFactory::createScene(AssetManager &assetManager,
 }
 
 void SceneFactory::createNode(tinygltf::Node const &node,
-                              tinygltf::Model const &model,
-                              std::vector<tinygltf::Buffer> &buffers,
+                              tinygltf::Model &model, std::vector<Mesh> *meshes,
                               NodeFactory *nodeFactory) {
 
   Node *result = nullptr;
 
+  tinygltf::Image image;
   // 创建mesh
   if (node.mesh != -1) {
 
     auto *meshIns = nodeFactory->createNode<MeshInstance>(node.name);
-    meshIns->mesh = createMesh(node.mesh, model, buffers);
+    meshIns->mesh = &*(meshes->begin() + node.mesh);
   } else if (node.camera != -1) {
     auto *camera =
         createCamera(model.cameras[node.camera], node.name, nodeFactory);
@@ -266,7 +424,7 @@ void SceneFactory::createNode(tinygltf::Node const &node,
 }
 
 void SceneFactory::createNodeTree(const tinygltf::Node &node,
-                                  const tinygltf::Model &model, NodeMap &map,
+                                  tinygltf::Model &model, NodeMap &map,
                                   NodeTree &tree) {
   if (node.children.empty()) {
     return;
@@ -291,74 +449,149 @@ void SceneFactory::createNodeTree(const tinygltf::Node &node,
   }
 }
 
-Mesh SceneFactory::createMesh(int meshIndex, const tinygltf::Model &model,
-                              std::vector<tinygltf::Buffer> &buffers) {
+// Mesh SceneFactory::createMesh(int meshIndex, tinygltf::Model &model,
+//                               std::vector<tinygltf::Buffer> &buffers) {
 
-  Mesh result;
-  auto &mesh = model.meshes[meshIndex];
+//   Mesh result;
+//   auto &mesh = model.meshes[meshIndex];
 
-  // 构建mesh
-  auto vec3Attributes = std::to_array<std::string>({"POSITION", "NORMAL"});
-  for (auto const &primitive : mesh.primitives) {
+//   // 构建mesh
+//   auto vec3Attributes = std::to_array<std::string>({"POSITION", "NORMAL"});
+//   for (auto const &primitive : mesh.primitives) {
 
-    // 不存在indice 不会显示。
+//     // 不存在indice 不会显示。
 
-    if (primitive.indices != -1) {
+//     if (primitive.indices != -1) {
 
-      Mesh::SubMesh subMesh;
-      auto const &accessor = model.accessors[primitive.indices];
-      auto spanBuffer = createSpanBuffer(accessor, model, buffers);
+//       Mesh::SubMesh subMesh;
+//       auto const &accessor = model.accessors[primitive.indices];
+//       auto indexBuffer = createSpanBuffer(accessor, model, buffers);
 
-      if (std::holds_alternative<Mesh::IndexSpanType>(spanBuffer)) {
-        subMesh.indices = std::get<Mesh::IndexSpanType>(spanBuffer);
-        // 构建submesh中的attributes
-        auto const &attributes = primitive.attributes;
-        for (auto const &attri : attributes) {
+//       if (std::holds_alternative<Mesh::IndexSpanType>(indexBuffer)) {
+//         subMesh.indices = std::get<Mesh::IndexSpanType>(indexBuffer);
 
-          if (auto iter = ranges::find(vec3Attributes, attri.first);
-              iter != ranges::end(vec3Attributes)) {
+//         std::map<int, std::span<glm::vec2>> texCoords;
+//         // 构建submesh中的attributes
+//         auto const &attributes = primitive.attributes;
+//         for (auto const &attri : attributes) {
 
-            auto const &accessor = model.accessors[attri.second];
-            // 构建属性span buffer
-            auto spanBuffer = createSpanBuffer(accessor, model, buffers);
+//           if (auto iter = ranges::find(vec3Attributes, attri.first);
+//               iter != ranges::end(vec3Attributes)) {
 
-            if (*iter == "POSITION" &&
-                holds_alternative<std::span<glm::vec3>>(spanBuffer)) {
+//             auto const &accessor = model.accessors[attri.second];
+//             // 构建属性span buffer
+//             auto spanBuffer = createSpanBuffer(accessor, model, buffers);
 
-              subMesh.positions = std::get<std::span<glm::vec3>>(spanBuffer);
-            } else if (*iter == "NORMAL" &&
-                       holds_alternative<std::span<glm::vec3>>(spanBuffer)) {
-              subMesh.normals = std::get<std::span<glm::vec3>>(spanBuffer);
-            } // else if (*iter == "NORMAL" &&
-            //            holds_alternative<std::span<glm::vec3>>(spanBuffer)) {
+//             if (*iter == "POSITION" &&
+//                 holds_alternative<std::span<glm::vec3>>(spanBuffer)) {
 
-            // }
-            else {
-              spdlog::warn("{}'s type in asset is not match  {}'s type' ",
-                           mesh.name, *iter);
-            }
-          }
-        }
+//               subMesh.positions = std::get<std::span<glm::vec3>>(spanBuffer);
+//             } else if (*iter == "NORMAL" &&
+//                        holds_alternative<std::span<glm::vec3>>(spanBuffer)) {
+//               subMesh.normals = std::get<std::span<glm::vec3>>(spanBuffer);
+//             } else {
+//               auto viewStrings = views::split(*iter, "_");
+//               std::vector<std::string_view> viewStrs(viewStrings.begin(),
+//                                                      viewStrings.end());
+//               if (viewStrs.size() == 2) {
+//                 std::string indexStr(viewStrs[1]);
+//                 auto indexNumber = std::stoi(indexStr);
 
-        result.subMeshs.push_back(subMesh);
-        // result.indexCount+=subMesh.indices.size();
-        // result.vertexCount+=subMesh.positions.size();
-      } else {
-        // index type 不匹配时
-        auto indexType = vk::IndexTypeValue<IndexType>::value;
-        spdlog::warn("{}'s index type {} in gltf asset is not match  indices's "
-                     "type {} ,so don't appear\n",
-                     mesh.name, accessor.componentType,
-                     std::to_underlying(indexType));
-      }
-    } else {
-      spdlog::warn(
-          "{} primitive don't have indices attribute, so don't appear \n",
-          mesh.name);
-    }
-  }
-  return result;
-}
+//                 if (viewStrs[0] == "TEXCOORD" &&
+//                     holds_alternative<std::span<glm::vec2>>(spanBuffer)) {
+//                   texCoords.insert_or_assign(
+//                       indexNumber,
+//                       std::get<std::span<glm::vec2>>(spanBuffer));
+//                 }
+
+//               } else {
+
+//                 spdlog::warn("{}'s type in asset is not match  {}'s type' ",
+//                              mesh.name, *iter);
+//               }
+//             }
+//           }
+//         }
+
+//         // 设置texCoords
+//         for (auto &texCoordElem : texCoords) {
+//           subMesh.texCoords.push_back(texCoordElem.second);
+//         }
+
+//         if (primitive.material != -1) {
+
+//           auto &currentMat = model.materials.at(primitive.material);
+//           auto &pbrCurrent = currentMat.pbrMetallicRoughness;
+//         }
+
+//         result.subMeshs.push_back(subMesh);
+//         // result.indexCount+=subMesh.indices.size();
+//         // result.vertexCount+=subMesh.positions.size();
+//       } else {
+//         // index type 不匹配时
+//         auto indexType = vk::IndexTypeValue<IndexType>::value;
+//         spdlog::warn("{}'s index type {} in gltf asset is not match indices's
+//         "
+//                      "type {} ,so don't appear\n",
+//                      mesh.name, accessor.componentType,
+//                      std::to_underlying(indexType));
+//       }
+//     } else {
+//       spdlog::warn(
+//           "{} primitive don't have indices attribute, so don't appear \n",
+//           mesh.name);
+//     }
+//   }
+//   return result;
+// }
+// Texture SceneFactory::createTexture(const tinygltf::TextureInfo &info,
+//                                     tinygltf::Model &model) {
+//   auto getFilter = [](int filterNumber) {
+//     switch (filterNumber) {
+//     case 9728:
+//       return vk::Filter::eNearest;
+//     case 9729:
+//       return vk::Filter::eLinear;
+//     default:
+//       return vk::Filter::eLinear;
+//     }
+//   };
+
+//   auto &textureInfo = model.textures[info.index];
+
+//   Texture texture;
+//   texture.coordIndex = info.texCoord;
+
+//   if (textureInfo.sampler != -1) {
+//     auto &sampler = model.samplers[textureInfo.sampler];
+//     texture.magFilter = getFilter(sampler.magFilter);
+//     texture.minFilter = getFilter(sampler.minFilter);
+//   }
+//   if (textureInfo.source != -1) {
+//     auto &image = model.images[textureInfo.source];
+
+//     vk::Format imageFormat = vk::Format::eR8G8B8Sint;
+
+//     if (image.bits == 8) {
+//       if (image.component == 3) {
+//         imageFormat = vk::Format::eR8G8B8Sint;
+//       } else if (image.component == 4) {
+//         imageFormat = vk::Format::eR8G8B8A8Sint;
+//       }
+//     } else if (image.bits == 16) {
+//       if (image.component == 3) {
+//         imageFormat = vk::Format::eR16G16B16Sint;
+//       } else if (image.component == 4) {
+//         imageFormat = vk::Format::eR16G16B16A16Sint;
+//       }
+//     }
+
+//     texture.data =
+//         std::span<unsigned char>{image.image.data(), image.image.size()};
+
+//     return texture;
+//   }
+// }
 
 Camera *SceneFactory::createCamera(const tinygltf::Camera &camera,
                                    const std::string &name,

@@ -20,7 +20,15 @@ class Node;
 using key = std::string;
 using NodeTree = std::unordered_map<key, std::vector<key>>;
 using NodeMap = std::unordered_map<key, std::unique_ptr<Node>>;
+using MeshMap = std::unordered_map<key, std::unique_ptr<std::vector<Mesh>>>;
+using ImageMap = std::unordered_map<key, std::unique_ptr<std::vector<Image>>>;
+using MaterialMap = std::unordered_map<key, std::unique_ptr<std::vector<Material>>>;
+using TextureMap = std::unordered_map<key, std::unique_ptr<std::vector<Texture>>>;
 struct NodeContainer {
+  MeshMap meshMap;
+  ImageMap imageMap;
+  MaterialMap materailMap;
+  TextureMap textureMap;
   NodeTree tree;
   NodeMap map;
 };
@@ -162,7 +170,7 @@ public: // std::string meshKey() { return m_meshKey; }
 
   // 相对于世界坐标系的变换。
   glm::mat4 modelMatrix{1.0};
-  Mesh mesh;
+  Mesh *mesh;
 };
 
 class Camera : public Node {

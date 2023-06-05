@@ -170,12 +170,14 @@ void VulkanRender::createLogicalDevice() {
 
   vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2,
                      vk::PhysicalDeviceVulkan12Features,
-                     vk::PhysicalDeviceVulkan13Features>
+                     vk::PhysicalDeviceVulkan13Features,vk::PhysicalDeviceRobustness2FeaturesEXT>
       deviceCreateChains{};
   // vk::PhysicalDeviceFeatures deviceFeatures{};
   auto &deviceFeatures = deviceCreateChains.get<vk::PhysicalDeviceFeatures2>();
   auto &device13Features =
       deviceCreateChains.get<vk::PhysicalDeviceVulkan13Features>();
+  auto &robustnessFeature= deviceCreateChains.get<vk::PhysicalDeviceRobustness2FeaturesEXT>();
+  robustnessFeature.setNullDescriptor(VK_TRUE);
 
   deviceFeatures.features.setSamplerAnisotropy(VK_TRUE);
   device13Features.setSynchronization2(VK_TRUE);
@@ -214,7 +216,7 @@ void VulkanRender::createLogicalDevice() {
   m_transferQueue = std::make_unique<raii::Queue>(transferQueue);
 }
 
-void VulkanRender::drawFrame(App::Scene const &scene) {
+void VulkanRender::drawFrame(App::GPUScene const &scene) {
 
   // auto startTime = chrono::high_resolution_clock().now();
 
@@ -258,8 +260,8 @@ void VulkanRender::drawFrame(App::Scene const &scene) {
   // because buffer has to be completed
   m_frames[m_currentFrame].commandBuffer.reset();
   recordCommandBuffer(*m_frames[m_currentFrame].commandBuffer, imageIndex,
-                      [&scene](vk::CommandBuffer buffer) {
-                        scene.recordCommand(buffer, scene.showMap);
+                      [&scene](vk::CommandBuffer commandBuff) {
+                        scene.recordCommand(commandBuff);
                       });
 
   vk::SubmitInfo submitInfo{};
@@ -474,10 +476,14 @@ App::VulkanMemory VulkanRender::createVulkanMemory() {
   createInfo.physicalDevice = *m_physicalDevice;
   createInfo.instance = *m_instance;
 
+  auto uniformBufferAlignment =
+      m_gpuProperties.limits.minUniformBufferOffsetAlignment;
+
   return App::VulkanMemory(createInfo, m_pDevice.get(), m_transferQueue.get(),
                            m_graphicsQueue.get(),
                            m_queueFamilyIndices.transferFamily.value(),
                            m_queueFamilyIndices.graphicsFamily.value(),
                            m_queueFamilyIndices.transferFamily.value() ==
-                               m_queueFamilyIndices.graphicsFamily.value());
+                               m_queueFamilyIndices.graphicsFamily.value(),
+                           uniformBufferAlignment);
 }

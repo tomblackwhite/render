@@ -30,6 +30,9 @@ layout(set = 0,binding=1) uniform SceneData{
     vec4 sunlightColor;
 } sceneData;
 
+layout(set = 1,binding=0) uniform ObjectData{
+    mat4 modelMatrix[];
+} objectData;
 
 layout(push_constant) uniform constants{
     vec4 data;

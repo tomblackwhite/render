@@ -83,6 +83,12 @@ VertexInputDescription Mesh::SubMesh::getVertexDescription() {
       .stride = sizeof(NormalType),
       .inputRate = vk::VertexInputRate::eVertex};
 
+  vk::VertexInputBindingDescription texCoordBinding{
+      .binding = 2,
+      .stride = sizeof(TextureCoordinate),
+      .inputRate = vk::VertexInputRate::eVertex};
+
+
   vk::VertexInputAttributeDescription positionAttr{
       .location = 0,
       .binding = 0,
@@ -94,8 +100,14 @@ VertexInputDescription Mesh::SubMesh::getVertexDescription() {
       .format = vk::Format::eR32G32B32Sfloat,
       .offset = 0};
 
-  VertexInputDescription des{{positionBinding, normalBinding},
-                             {positionAttr, normalAttr}};
+  vk::VertexInputAttributeDescription texCoordAttr{
+      .location = 2,
+      .binding = 2,
+      .format = vk::Format::eR32G32Sfloat,
+      .offset = 0};
+
+  VertexInputDescription des{{positionBinding, normalBinding,texCoordBinding},
+                             {positionAttr, normalAttr,texCoordAttr}};
 
   return des;
 }

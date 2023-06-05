@@ -90,7 +90,7 @@ public:
 
   void waitDrawClean();
   void cleanup();
-  void drawFrame(App::Scene const &scene);
+  void drawFrame(App::GPUScene const &scene);
 
   std::optional<chrono::duration<float, std::milli>> getPerFrameTime() {
     return m_perFrameTime;

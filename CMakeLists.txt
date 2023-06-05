@@ -6,13 +6,15 @@ project(render VERSION 0.0.1 LANGUAGES CXX)
 
 #set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_BUILD_TYPE "Debug")
+message("CMAKE_CXX_FLAGS_DEBUG is ${CMAKE_CXX_FLAGS_DEBUG}")
 #export compile_commands.json
 set(CMAKE_EXPORT_COMPILE_COMMANDS "YES")
 
 #set c++ standard
 set(CMAKE_CXX_STANDARD 23)
 # enable_testing()
-#add_compile_options(-g)
+
+add_compile_options($<$<CONFIG:Debug>:-O0>)
 
 add_compile_definitions($<$<CONFIG:Debug>:DEBUG>)
 add_compile_definitions(
@@ -39,6 +41,7 @@ file(
   "${CMAKE_SOURCE_DIR}/asset/*"
 )
 add_custom_target(copyasset ALL
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/asset"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different ${asset_file} "${CMAKE_BINARY_DIR}/asset")
 
 
