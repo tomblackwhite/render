@@ -35,15 +35,10 @@ conan_basic_setup(TARGETS)
 add_subdirectory("src")
 
 
-#copy assets to obj
-file(
-  GLOB asset_file
-  "${CMAKE_SOURCE_DIR}/asset/*"
-)
-add_custom_target(copyasset ALL
-  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/asset"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${asset_file} "${CMAKE_BINARY_DIR}/asset")
-
+# set_property(
+#   TARGET copyasset
+#   APPEND
+#   PROPERTY )
 
 enable_testing()
 add_executable(test-bin test/test.cc)

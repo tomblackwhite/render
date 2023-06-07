@@ -174,6 +174,7 @@ void SceneManager::showScene(const string &scene) {
   vk::ImageViewCreateInfo imageViewInfo{};
   imageViewInfo.setViewType(vk::ImageViewType::e2D);
 
+
   imageViewInfo.setSubresourceRange(imageViewRange);
 
   vk::SamplerCreateInfo samplerInfo{};
@@ -190,6 +191,7 @@ void SceneManager::showScene(const string &scene) {
         m_vulkanMemory->m_pDevice->createImageView(imageViewInfo);
     samplerInfo.setMagFilter(texture->magFilter);
     samplerInfo.setMinFilter(texture->minFilter);
+
 
     TextureFilter filter{.magFilter = texture->magFilter,
                          .minFilter = texture->minFilter};
@@ -237,6 +239,7 @@ void SceneManager::showScene(const string &scene) {
     baseColorDescriptorInfo.setImageView(
         *(material->pbr.baseColorTexture->imageView));
 
+
     vk::DescriptorImageInfo metallicRoughnessDescriptorInfo{};
     metallicRoughnessDescriptorInfo.setImageLayout(
         vk::ImageLayout::eShaderReadOnlyOptimal);
@@ -258,6 +261,7 @@ void SceneManager::showScene(const string &scene) {
     writeSet.setDescriptorCount(descriptorImages.back().size());
     writeSet.setImageInfo(descriptorImages.back());
     writeSet.setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
+
     writeSets.push_back(writeSet);
   }
 
@@ -271,7 +275,7 @@ void SceneManager::showScene(const string &scene) {
   vk::WriteDescriptorSet writeSet{};
   writeSet.setDstSet(*(m_scene.objectSet));
   writeSet.setDstBinding(0);
-  writeSet.setDescriptorType(vk::DescriptorType::eStorageBufferDynamic);
+  writeSet.setDescriptorType(vk::DescriptorType::eStorageBuffer);
   writeSet.setBufferInfo(descriptorBufferInfo);
 
 
@@ -383,12 +387,12 @@ void SceneFactory::createNode(tinygltf::Node const &node,
 
   Node *result = nullptr;
 
-  tinygltf::Image image;
   // 创建mesh
   if (node.mesh != -1) {
 
-    auto *meshIns = nodeFactory->createNode<MeshInstance>(node.name);
-    meshIns->mesh = &*(meshes->begin() + node.mesh);
+    auto *meshInst = nodeFactory->createNode<MeshInstance>(node.name);
+    meshInst->mesh = &*(meshes->begin() + node.mesh);
+    result = meshInst;
   } else if (node.camera != -1) {
     auto *camera =
         createCamera(model.cameras[node.camera], node.name, nodeFactory);

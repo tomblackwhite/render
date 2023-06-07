@@ -333,7 +333,7 @@ private:
   void recordCommandDetail(vk::CommandBuffer commandBuffer) const {
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *pipeline);
     commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
-                                     *pipelineLayout, 0, *sceneSet, {});
+                                     *pipelineLayout, 0, {*sceneSet,*objectSet}, {});
 
     // bind vertex
     auto vertexBufferView =
@@ -346,7 +346,7 @@ private:
     if (vertexBufferTemp.empty()) {
       return;
     }
-    std::vector<vk::DeviceSize> vertexOffsets(vertexBufferTemp.size(), 0);
+    // std::vector<vk::DeviceSize> vertexOffsets(vertexBufferTemp.size(), 0);
     commandBuffer.bindVertexBuffers(
         0,
         std::vector<vk::Buffer>(vertexBufferView.begin(),
@@ -360,12 +360,13 @@ private:
     int32_t currentVertexOffset = 0;
     uint32_t currentIndexOffset = 0;
     uint32_t currentMeshIndex = 0;
+    uint32_t currentInstanceIndex = 0;
     for (auto const &[key, value] : meshShowMap) {
       auto &currentMesh = *key;
 
-      commandBuffer.bindDescriptorSets(
-          vk::PipelineBindPoint::eGraphics, *pipelineLayout, 1, *(objectSet),
-          vertexBuffer.objectOffsets[currentMeshIndex]);
+      // commandBuffer.bindDescriptorSets(
+      //     vk::PipelineBindPoint::eGraphics, *pipelineLayout, 1, *(objectSet),
+      //     vertexBuffer.objectOffsets[currentMeshIndex]);
       App::MeshPushConstants constants = {};
 
       // first x is mesh index
@@ -383,10 +384,11 @@ private:
                                          *pipelineLayout, 2,
                                          *(subMesh.material->textureSet), {});
         commandBuffer.drawIndexed(subMesh.indices.size(), value.size(),
-                                  currentIndexOffset, currentVertexOffset, 0);
+                                  currentIndexOffset, currentVertexOffset, currentInstanceIndex);
         currentIndexOffset += subMesh.indices.size();
         currentVertexOffset += static_cast<int32_t>(subMesh.positions.size());
       }
+      currentInstanceIndex+=value.size();
       currentMeshIndex += 1;
     }
   }
@@ -411,6 +413,8 @@ private:
     textureBinding.setDescriptorCount(2);
     textureBinding.setStageFlags(vk::ShaderStageFlagBits::eFragment);
     textureBinding.setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
+
+
     return {textureBinding};
   }
 
@@ -421,7 +425,7 @@ private:
     objectBinding.setBinding(0);
     objectBinding.setDescriptorCount(1);
     objectBinding.setStageFlags(vk::ShaderStageFlagBits::eVertex);
-    objectBinding.setDescriptorType(vk::DescriptorType::eStorageBufferDynamic);
+    objectBinding.setDescriptorType(vk::DescriptorType::eStorageBuffer);
     return {objectBinding};
   }
   static std::vector<vk::PushConstantRange> getPushConstantranges() {
@@ -613,13 +617,13 @@ private:
   }
 
   static Image createImage(tinygltf::Image &image) {
-    vk::Format imageFormat = vk::Format::eR8G8B8Sint;
+    vk::Format imageFormat = vk::Format::eR8G8B8Srgb;
 
     if (image.bits == 8) {
       if (image.component == 3) {
-        imageFormat = vk::Format::eR8G8B8Sint;
+        imageFormat = vk::Format::eR8G8B8Srgb;
       } else if (image.component == 4) {
-        imageFormat = vk::Format::eR8G8B8A8Sint;
+        imageFormat = vk::Format::eR8G8B8A8Srgb;
       }
     } else if (image.bits == 16) {
       if (image.component == 3) {

@@ -1,26 +1,21 @@
 #version 460
 
-// layout(binding = 0) uniform UniformBufferObject {
-//     mat4 model;
-//     mat4 view;
-//     mat4 proj;
-// } ubo;
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
+layout(location = 2) in vec2 texCoordinate;
 
 
 //out
 layout(location = 0) out vec3 vertexColor;
-
+layout(location = 1) out vec2 texCoord;
 
 
 layout(set = 0, binding = 0) uniform CameraBuffer {
   mat4 view;
   mat4 proj;
   mat4 viewProj;
-}
-cameraData;
+}cameraData;
 
 // layout(set = 0, binding = 1) uniform SceneData {
 //   vec4 fogColor;
@@ -58,6 +53,7 @@ void main() {
    mat4 transformMatrix = cameraData.viewProj * objectData.modelMatrix[gl_InstanceIndex];
    // mat4 transformMatrix = cameraData.viewProj;
   gl_Position = transformMatrix * vec4(inPosition, 1.0f);
+  texCoord = texCoordinate;
   // gl_Position = vec4(inPosition, 1.0f);
      // gl_Position= transformMatrix* vec4(positions[gl_VertexIndex%3],1);
   vertexColor= colors[gl_VertexIndex%3];

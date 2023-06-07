@@ -100,8 +100,8 @@ protected:
 private:
   void setTransformInner() {
     m_transform=glm::scale(glm::mat4(1), m_scale);
-    m_transform *= glm::toMat4(m_rotation);
-    m_transform=glm::translate(m_transform, m_translation);
+    m_transform = glm::toMat4(m_rotation) * m_transform;
+    m_transform=glm::translate(glm::mat4(1), m_translation) * m_transform;
   }
 
   glm::mat4 m_transform{1.0};
@@ -142,6 +142,7 @@ public:
     requires std::derived_from<T, Node>
   T *createNode(std::string key) {
     auto nodeT = std::unique_ptr<T>(new T());
+    nodeT->name=key;
     auto result = nodeT.get();
     std::unique_ptr<Node> node(nodeT.release());
     m_container->map.insert_or_assign(key, std::move(node));

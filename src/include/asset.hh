@@ -187,9 +187,10 @@ struct Material {
 struct GPUMeshBlock {
   VulkanBufferHandle indexBuffer;
   std::vector<VulkanBufferHandle> buffers;
+  VulkanBufferHandle texCoordinateBuffer;
+  std::vector<vk::DeviceSize> texCoordinateOffets;
+
   VulkanBufferHandle objectBuffer;
-
-
   std::vector<vk::DeviceSize> objectOffsets;
 
   // VertexInputDescription inputDescription;
@@ -360,7 +361,7 @@ public: // Inteface
     std::vector<std::span<Mesh::NormalType>> normals;
     vk::DeviceSize normalBufferSize = 0;
 
-    std::vector<std::vector<std::span<Mesh::TextureCoordinate>>> coordinates;
+    std::vector<std::span<Mesh::TextureCoordinate>> coordinates;
     vk::DeviceSize coordinatesBufferSize = 0;
 
     std::vector<std::span<glm::mat4>> objects;
@@ -379,21 +380,25 @@ public: // Inteface
         normalBufferSize += subMesh.normals.size_bytes();
         normals.push_back(subMesh.normals);
 
-        coordinates.push_back(subMesh.texCoords);
-        coordinatesBufferSize +=
-            std::accumulate(subMesh.texCoords.begin(), subMesh.texCoords.end(),
-                            static_cast<vk::DeviceSize>(0),
-                            [](vk::DeviceSize count, auto &right) {
-                              return count + right.size_bytes();
-                            });
+        if (!subMesh.texCoords.empty()) {
+          coordinates.push_back(subMesh.texCoords[0]);
+          coordinatesBufferSize += subMesh.texCoords[0].size_bytes();
+        }
+        // coordinatesBufferSize +=
+        //     std::accumulate(subMesh.texCoords.begin(),
+        //     subMesh.texCoords.end(),
+        //                     static_cast<vk::DeviceSize>(0),
+        //                     [](vk::DeviceSize count, auto &right) {
+        //                       return count + right.size_bytes();
+        //                     });
       }
 
       std::span<glm::mat4> object{objectMatrice};
-      vertexBuffer.objectOffsets.push_back(objectOffset);
+      // vertexBuffer.objectOffsets.push_back(objectOffset);
       auto objectSize = object.size_bytes();
-      auto padObjectSize = getUniformPadSize(objectSize);
-      objectBufferSize += padObjectSize;
-      objectOffset += padObjectSize;
+      // auto padObjectSize = getUniformPadSize(objectSize);
+      // objectBufferSize += padObjectSize;
+      objectBufferSize += objectSize;
       objects.push_back(object);
     }
 
@@ -422,6 +427,7 @@ public: // Inteface
         VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
     for (auto *image : images) {
       imageInfo.setFormat(image->format);
+
       imageInfo.setExtent(image->extent);
       image->image = createImage(imageInfo, imageAllocationInfo);
     }
@@ -466,7 +472,7 @@ public: // Inteface
                  vk::BufferUsageFlagBits::eTransferDst};
     auto texCoordBuffer = createBuffer(texCoordBufferInfo, allocationInfo);
     transferBuffer.buffers.push_back(uploadToTransfer(
-        coordinatesBufferSize, ranges::views::join(coordinates)));
+        coordinatesBufferSize, coordinates));
     vertexBuffer.buffers.push_back(std::move(texCoordBuffer));
 
     vk::BufferCreateInfo objectBufferInfo = {
@@ -475,8 +481,7 @@ public: // Inteface
                  vk::BufferUsageFlagBits::eTransferDst};
     auto objectBuffer = createBuffer(objectBufferInfo, allocationInfo);
     transferBuffer.objectBuffer =
-        uploadToTransfer(objectBufferSize, ranges::views::all(objects),
-                         &vertexBuffer.objectOffsets);
+        uploadToTransfer(objectBufferSize, ranges::views::all(objects));
     vertexBuffer.objectBuffer = std::move(objectBuffer);
 
     auto transferCommand = [&vertexBuffer, &transferBuffer, &images,
@@ -580,7 +585,7 @@ public: // Inteface
       objectInfo2.setSrcBuffer(transferBuffer.objectBuffer.get());
       objectInfo2.setDstBuffer(vertexBuffer.objectBuffer.get());
       auto objectSize = vertexBuffer.objectBuffer.get_deleter().m_size;
-      vk::BufferCopy2 objectRegion{.size=objectSize};
+      vk::BufferCopy2 objectRegion{.size = objectSize};
       objectInfo2.setRegions(objectRegion);
       commandBuffer.copyBuffer2(objectInfo2);
 

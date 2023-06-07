@@ -111,6 +111,11 @@ add_custom_target(
   create_shader_dir
   COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_BIN_PATH}
 )
+
+set_target_properties(create_shader_dir
+  PROPERTIES
+  ADDITIONAL_CLEAN_FILES  "${SHADER_BIN_PATH}")
+
 add_custom_command(
   OUTPUT spirv
   COMMAND ${Vulkan_GLSLC_EXECUTABLE} "-O" "-c" "${shader_files}"
@@ -126,7 +131,12 @@ add_custom_target(
   DEPENDS spirv
 )
 
+#copy assets to obj
+add_custom_target(copyasset ALL
+  COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different "${CMAKE_SOURCE_DIR}/asset" "${CMAKE_BINARY_DIR}/asset")
 
+set_target_properties(copyasset
+  PROPERTIES
+  ADDITIONAL_CLEAN_FILES  "${CMAKE_BINARY_DIR}/asset")
 
-
-add_dependencies(render shaderbin)
+add_dependencies(render shaderbin copyasset)
