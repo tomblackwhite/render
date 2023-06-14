@@ -3,6 +3,7 @@
 #include "gltf_type.hh"
 #include "pipeline.hh"
 #include "script_implement.hh"
+#include <chrono>
 #include <concepts>
 #include <map>
 #include <utility>
@@ -13,6 +14,7 @@
 
 namespace App {
 
+namespace chrono = std::chrono;
 using namespace std::literals::string_view_literals;
 namespace views = std::ranges::views;
 namespace fs = std::filesystem;
@@ -51,16 +53,17 @@ struct TextureFilter {
 struct GPUScene {
 
   GPUCamera camera;
+  GPUSceneData sceneData;
 
   glm::mat4 model{1};
 
   // 顶点数据
   MeshShowMap meshShowMap;
   NodeShowMap showMap;
-  GPUMeshBlock vertexBuffer;
+  std::unique_ptr<GPUMeshBlock> vertexBuffer{nullptr};
 
   std::vector<vk::DescriptorSetLayoutBinding> bindings = getBindings();
-  VulkanBufferHandle cameraBuffer{nullptr};
+  VulkanBufferHandle sceneBuffer{nullptr};
   raii::DescriptorSetLayout sceneSetLayout{nullptr};
   raii::DescriptorSet sceneSet{nullptr};
 
@@ -242,19 +245,26 @@ struct GPUScene {
     this->sceneSet = std::move(sets[0]);
     this->objectSet = std::move(sets[1]);
 
-    //  初始化scene 成员。创建cameraBuffer;
+    //  初始化scene 成员。创建sceneBuffer;
+    auto cameraPadSize = memory->getUniformPadSize(sizeof(GPUCamera));
+    auto scenePadSize = memory->getUniformPadSize(sizeof(GPUSceneData));
     vk::BufferCreateInfo bufferInfo{};
     bufferInfo.setUsage(vk::BufferUsageFlagBits::eUniformBuffer |
                         vk::BufferUsageFlagBits::eTransferDst);
-    bufferInfo.setSize(sizeof(GPUCamera));
+    bufferInfo.setSize(cameraPadSize + scenePadSize);
     VmaAllocationCreateInfo allocationInfo{};
     allocationInfo.usage = VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-    this->cameraBuffer = memory->createBuffer(bufferInfo, allocationInfo);
+    this->sceneBuffer = memory->createBuffer(bufferInfo, allocationInfo);
 
     vk::DescriptorBufferInfo descriptorBufferInfo{};
-    descriptorBufferInfo.setBuffer(this->cameraBuffer.get());
+    descriptorBufferInfo.setBuffer(this->sceneBuffer.get());
     descriptorBufferInfo.setOffset(0);
     descriptorBufferInfo.setRange(sizeof(GPUCamera));
+
+    vk::DescriptorBufferInfo gpuSceneBufferInfo{.buffer =
+                                                    this->sceneBuffer.get(),
+                                                .offset = cameraPadSize,
+                                                .range = sizeof(GPUSceneData)};
 
     // 绑定descriptorSet
     vk::WriteDescriptorSet writeSet{};
@@ -263,8 +273,15 @@ struct GPUScene {
     writeSet.setDescriptorType(vk::DescriptorType::eUniformBuffer);
     writeSet.setBufferInfo(descriptorBufferInfo);
 
+    vk::WriteDescriptorSet sceneSet{.dstSet = *this->sceneSet,
+                                    .dstBinding = 1,
+                                    .descriptorType =
+                                        vk::DescriptorType::eUniformBuffer};
+    sceneSet.setBufferInfo(gpuSceneBufferInfo);
+
     memory->updateDescriptorSets(
-        writeSet, std::initializer_list<vk::CopyDescriptorSet>{});
+        std::initializer_list<vk::WriteDescriptorSet>{writeSet, sceneSet},
+        std::initializer_list<vk::CopyDescriptorSet>{});
   }
 
   // void init(VulkanMemory* memory){
@@ -279,7 +296,7 @@ private:
 
     // bind vertex
     auto vertexBufferView =
-        views::all(vertexBuffer.buffers) |
+        views::all(vertexBuffer->buffers) |
         views::transform([](auto &elem) { return elem.get(); });
 
     std::vector<vk::Buffer> vertexBufferTemp(vertexBufferView.begin(),
@@ -296,7 +313,7 @@ private:
         std::vector<vk::DeviceSize>(vertexBufferTemp.size(), 0));
 
     // bind vertex index
-    commandBuffer.bindIndexBuffer(vertexBuffer.indexBuffer.get(), 0,
+    commandBuffer.bindIndexBuffer(vertexBuffer->indexBuffer.get(), 0,
                                   vk::IndexTypeValue<App::IndexType>::value);
 
     int32_t currentVertexOffset = 0;
@@ -333,11 +350,12 @@ private:
   void recordCommandDetail(vk::CommandBuffer commandBuffer) const {
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *pipeline);
     commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
-                                     *pipelineLayout, 0, {*sceneSet,*objectSet}, {});
+                                     *pipelineLayout, 0,
+                                     {*sceneSet, *objectSet}, {});
 
     // bind vertex
     auto vertexBufferView =
-        views::all(vertexBuffer.buffers) |
+        views::all(vertexBuffer->buffers) |
         views::transform([](auto &elem) { return elem.get(); });
 
     std::vector<vk::Buffer> vertexBufferTemp(vertexBufferView.begin(),
@@ -354,13 +372,15 @@ private:
         std::vector<vk::DeviceSize>(vertexBufferTemp.size(), 0));
 
     // bind vertex index
-    commandBuffer.bindIndexBuffer(vertexBuffer.indexBuffer.get(), 0,
+    commandBuffer.bindIndexBuffer(vertexBuffer->indexBuffer.get(), 0,
                                   vk::IndexTypeValue<App::IndexType>::value);
 
     int32_t currentVertexOffset = 0;
     uint32_t currentIndexOffset = 0;
     uint32_t currentMeshIndex = 0;
     uint32_t currentInstanceIndex = 0;
+    uint32_t currentSubMeshIndex = 0;
+    uint32_t materialOffset = 0;
     for (auto const &[key, value] : meshShowMap) {
       auto &currentMesh = *key;
 
@@ -382,13 +402,15 @@ private:
 
         commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
                                          *pipelineLayout, 2,
-                                         *(subMesh.material->textureSet), {});
+                                         {*(subMesh.material->textureSet)}, {});
         commandBuffer.drawIndexed(subMesh.indices.size(), value.size(),
-                                  currentIndexOffset, currentVertexOffset, currentInstanceIndex);
+                                  currentIndexOffset, currentVertexOffset,
+                                  currentInstanceIndex);
+        materialOffset += vertexBuffer->perMaterialPadSize;
         currentIndexOffset += subMesh.indices.size();
         currentVertexOffset += static_cast<int32_t>(subMesh.positions.size());
       }
-      currentInstanceIndex+=value.size();
+      currentInstanceIndex += value.size();
       currentMeshIndex += 1;
     }
   }
@@ -402,10 +424,20 @@ private:
     cameraBinding.setStageFlags(vk::ShaderStageFlagBits::eVertex);
     cameraBinding.setDescriptorType(vk::DescriptorType::eUniformBuffer);
 
-    return {cameraBinding};
+    vk::DescriptorSetLayoutBinding sceneBinding{
+        1, vk::DescriptorType::eUniformBuffer, 1,
+        vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment};
+
+    return {cameraBinding,sceneBinding};
   }
 
   static std::vector<vk::DescriptorSetLayoutBinding> getTextureBindings() {
+
+    // vk::DescriptorSetLayoutBinding materialBindings{
+    //     .binding = 0,
+    //     .descriptorType = vk::DescriptorType::eUniformBuffer,
+    //     .descriptorCount = 1,
+    //     .stageFlags = ::vk::ShaderStageFlagBits::eFragment};
 
     // 设置texture绑定关系
     vk::DescriptorSetLayoutBinding textureBinding{};
@@ -414,8 +446,13 @@ private:
     textureBinding.setStageFlags(vk::ShaderStageFlagBits::eFragment);
     textureBinding.setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
 
-
-    return {textureBinding};
+    vk::DescriptorSetLayoutBinding materialBinding{
+        .binding = 1,
+        .descriptorType = vk::DescriptorType::eUniformBuffer,
+        .descriptorCount = 1,
+        .stageFlags = vk::ShaderStageFlagBits::eFragment |
+                      vk::ShaderStageFlagBits::eVertex};
+    return {textureBinding, materialBinding};
   }
 
   static std::vector<vk::DescriptorSetLayoutBinding> getObjectBindings() {
@@ -426,6 +463,7 @@ private:
     objectBinding.setDescriptorCount(1);
     objectBinding.setStageFlags(vk::ShaderStageFlagBits::eVertex);
     objectBinding.setDescriptorType(vk::DescriptorType::eStorageBuffer);
+
     return {objectBinding};
   }
   static std::vector<vk::PushConstantRange> getPushConstantranges() {

@@ -41,7 +41,7 @@ add_library(
   "./script/script_implement.cc"
 )
 
-target_link_libraries(script PRIVATE node PUBLIC script_interface)
+target_link_libraries(script PRIVATE node PUBLIC script_interface tool)
 
 target_include_directories(script_interface PUBLIC "./include")
 target_link_libraries(
@@ -50,7 +50,7 @@ target_link_libraries(
 )
 target_link_libraries(
   core_other PUBLIC
-  node script script_interface
+  node script
 )
 
 target_include_directories(core_other PUBLIC "./include")

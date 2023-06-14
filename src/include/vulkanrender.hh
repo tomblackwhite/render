@@ -125,7 +125,7 @@ private:
 
   void createSurface(const VkSurfaceKHR &surface);
 
-  App::VulkanMemory createVulkanMemory();
+  std::unique_ptr<App::VulkanMemory> createVulkanMemory();
   void createLogicalDevice();
 
   void pickPhysicalDevice();

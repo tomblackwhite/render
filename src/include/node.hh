@@ -22,12 +22,14 @@ using NodeTree = std::unordered_map<key, std::vector<key>>;
 using NodeMap = std::unordered_map<key, std::unique_ptr<Node>>;
 using MeshMap = std::unordered_map<key, std::unique_ptr<std::vector<Mesh>>>;
 using ImageMap = std::unordered_map<key, std::unique_ptr<std::vector<Image>>>;
-using MaterialMap = std::unordered_map<key, std::unique_ptr<std::vector<Material>>>;
-using TextureMap = std::unordered_map<key, std::unique_ptr<std::vector<Texture>>>;
+using MaterialMap =
+    std::unordered_map<key, std::unique_ptr<std::vector<Material>>>;
+using TextureMap =
+    std::unordered_map<key, std::unique_ptr<std::vector<Texture>>>;
 struct NodeContainer {
   MeshMap meshMap;
   ImageMap imageMap;
-  MaterialMap materailMap;
+  MaterialMap materialMap;
   TextureMap textureMap;
   NodeTree tree;
   NodeMap map;
@@ -99,9 +101,9 @@ protected:
 
 private:
   void setTransformInner() {
-    m_transform=glm::scale(glm::mat4(1), m_scale);
+    m_transform = glm::scale(glm::mat4(1), m_scale);
     m_transform = glm::toMat4(m_rotation) * m_transform;
-    m_transform=glm::translate(glm::mat4(1), m_translation) * m_transform;
+    m_transform = glm::translate(glm::mat4(1), m_translation) * m_transform;
   }
 
   glm::mat4 m_transform{1.0};
@@ -142,7 +144,7 @@ public:
     requires std::derived_from<T, Node>
   T *createNode(std::string key) {
     auto nodeT = std::unique_ptr<T>(new T());
-    nodeT->name=key;
+    nodeT->name = key;
     auto result = nodeT.get();
     std::unique_ptr<Node> node(nodeT.release());
     m_container->map.insert_or_assign(key, std::move(node));
@@ -180,6 +182,14 @@ class Camera : public Node {
 public:
   glm::mat4 view{1};
   glm::mat4 projection{1};
+};
+
+class Scene : public Node {
+
+  friend class NodeFactory;
+
+public:
+  GPUSceneData sceneData;
 };
 
 } // namespace App

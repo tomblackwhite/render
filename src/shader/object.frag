@@ -1,6 +1,6 @@
 #version 460
 
-layout(location = 0) in vec3 vertexInColor;
+layout(location = 0) in vec4 vertexInColor;
 layout(location = 1) in vec2 texCoord;
 
 layout(location = 0) out vec4 outColor;

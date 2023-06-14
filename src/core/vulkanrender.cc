@@ -33,7 +33,7 @@ void VulkanRender::initVulkan(const VkSurfaceKHR &surface) {
 }
 
 void VulkanRender::initMemory() {
-  m_vulkanMemory = std::make_unique<App::VulkanMemory>(createVulkanMemory());
+  m_vulkanMemory = createVulkanMemory();
 }
 
 void VulkanRender::initPipelineFactory() {
@@ -468,7 +468,7 @@ VulkanRender::findMemoryType(uint32_t typeFilter,
   return 0;
 }
 
-App::VulkanMemory VulkanRender::createVulkanMemory() {
+std::unique_ptr<App::VulkanMemory> VulkanRender::createVulkanMemory() {
   VmaAllocatorCreateInfo createInfo{};
 
   createInfo.vulkanApiVersion = m_vulkanApiVersion;
@@ -479,11 +479,12 @@ App::VulkanMemory VulkanRender::createVulkanMemory() {
   auto uniformBufferAlignment =
       m_gpuProperties.limits.minUniformBufferOffsetAlignment;
 
-  return App::VulkanMemory(createInfo, m_pDevice.get(), m_transferQueue.get(),
+ auto memory= std::make_unique<App::TransferVulkanMemory>(createInfo, m_pDevice.get(), m_transferQueue.get(),
                            m_graphicsQueue.get(),
                            m_queueFamilyIndices.transferFamily.value(),
                            m_queueFamilyIndices.graphicsFamily.value(),
                            m_queueFamilyIndices.transferFamily.value() ==
                                m_queueFamilyIndices.graphicsFamily.value(),
                            uniformBufferAlignment);
+ return memory;
 }
