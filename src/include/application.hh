@@ -49,7 +49,10 @@ private:
 
   SDL_Window *m_window = nullptr;
 
+  std::unique_ptr<App::Input> m_input=std::make_unique<App::Input>();
+
   VulkanRender m_vulkanRender;
+
 
   App::SceneManager m_manager;
 

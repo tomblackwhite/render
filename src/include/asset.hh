@@ -169,10 +169,10 @@ struct Material {
 
     TextureIterator baseColorTexture{};
     glm::vec4 baseColorFactor{1.0, 1.0, 1.0, 1.0};
-    uint32_t baseColorCoordIndex = 0;
+    int32_t baseColorCoordIndex = -1;
 
     TextureIterator metallicRoughnessTexture{};
-    uint32_t metallicRoughnessCoordIndex = 0;
+    int32_t metallicRoughnessCoordIndex = -1;
 
     float metallicFactor = 1.0;
     float roughnessFactor = 1.0;
@@ -187,8 +187,8 @@ struct alignas(16) GPUPBR {
   alignas(4 * alignof(glm::float32)) glm::vec4 baseColorFactor;
   glm::float32 metallicFactor;
   glm::float32 roughnessFactor;
-  uint32_t baseColorCoordIndex;
-  uint32_t metallicRoughnessCoordIndex;
+  int32_t baseColorCoordIndex;
+  int32_t metallicRoughnessCoordIndex;
 };
 
 // VertexBuffer Struct
@@ -362,28 +362,28 @@ public: // Inteface
   }
 
   // 现在假设所有mesh中的indexType全部为16位。如果不是会不加载。打log;
-  template <ranges::input_range U, ranges::input_range T>
-    requires std::same_as<ranges::range_value_t<U>, Image *> &&
-             std::same_as<ranges::range_value_t<T>, Material *>
-  void uploadAll(U &&images, MeshShowMap &meshShowMap,
-                 std::unique_ptr<GPUMeshBlock> &meshBlock, T &materials) {
+  // template <ranges::input_range U, ranges::input_range T>
+  //   requires std::same_as<ranges::range_value_t<U>, Image *> &&
+  //            std::same_as<ranges::range_value_t<T>, Material *>
+  // void uploadAll(U &&images, MeshShowMap &meshShowMap,
+  //                std::unique_ptr<GPUMeshBlock> &meshBlock, T &materials) {
 
-    meshBlock = uploadMeshes(meshShowMap);
-    std::vector<Image *> imageVector;
-    imageVector.reserve(images.size());
-    for (auto *image : images) {
-      imageVector.emplace_back(image);
-    }
-    uploadImages(imageVector);
+  //   meshBlock = uploadMeshes(meshShowMap);
+  //   std::vector<Image *> imageVector;
+  //   imageVector.reserve(images.size());
+  //   for (auto *image : images) {
+  //     imageVector.emplace_back(image);
+  //   }
+  //   uploadImages(imageVector);
 
-    std::vector<Material *> materialVec;
-    materialVec.reserve(materials.size());
-    materialVec.assign(materials.begin(), materials.end());
-    meshBlock->materialsBuffer = uploadMaterials(materialVec);
-    meshBlock->perMaterialPadSize = getUniformPadSize(sizeof(GPUPBR));
+  //   std::vector<Material *> materialVec;
+  //   materialVec.reserve(materials.size());
+  //   materialVec.assign(materials.begin(), materials.end());
+  //   meshBlock->materialsBuffer = uploadMaterials(materialVec);
+  //   meshBlock->perMaterialPadSize = getUniformPadSize(sizeof(GPUPBR));
 
-    immediateSubmit();
-  }
+  //   immediateSubmit();
+  // }
   // maybe change element_type as std::span<byte>
   //  upload to gpu memory
   template <typename View>
@@ -441,17 +441,27 @@ public: // Inteface
     auto *transferAllocation = transferDeleter.m_allocation;
 
     void *data = nullptr;
+#ifdef DEBUG
+    std::vector<std::byte> bytes(size);
+    void *debugData = bytes.data();
+    unsigned char *preData = nullptr;
+#endif
 
     App::VulkanCheck(vmaMapMemory(m_allocator.get(), transferAllocation, &data),
                      "map error");
+#ifdef DEBUG
+    preData = static_cast<unsigned char *>(data);
+    auto *lastData = preData + size;
+#endif
     if (elemPadSize.has_value()) {
 
+      auto *addr = static_cast<unsigned char *>(data);
       std::size_t offset = 0;
       for (auto buffer : buffers) {
-        auto *addr = static_cast<unsigned char *>(data);
-        addr += offset;
-        data = addr;
-        std::memcpy(data, buffer.data(), buffer.size_bytes());
+        auto *currentData = addr + offset;
+
+        assert(currentData < lastData);
+        std::memcpy(currentData, buffer.data(), buffer.size_bytes());
         offset += elemPadSize.value();
       }
     } else if (offsets != nullptr) {
@@ -460,16 +470,16 @@ public: // Inteface
       for (auto buffer : buffers) {
         auto *addr = static_cast<unsigned char *>(data);
         addr += offsets->at(offsetIndex);
-        data = addr;
-        std::memcpy(data, buffer.data(), buffer.size_bytes());
+        assert(addr < lastData);
+        std::memcpy(addr, buffer.data(), buffer.size_bytes());
         ++offsetIndex;
       }
     } else {
+      auto *currentAddr = static_cast<unsigned char *>(data);
       for (auto buffer : buffers) {
-        std::memcpy(data, buffer.data(), buffer.size_bytes());
-        auto *nextAddr = static_cast<unsigned char *>(data);
-        nextAddr += buffer.size_bytes();
-        data = nextAddr;
+        assert(currentAddr < lastData);
+        std::memcpy(currentAddr, buffer.data(), buffer.size_bytes());
+        currentAddr += buffer.size_bytes();
       }
     }
     vmaUnmapMemory(m_allocator.get(), transferAllocation);
@@ -627,8 +637,7 @@ public:
     requires std::same_as<
         ranges::range_value_t<View>,
         std::span<typename ranges::range_value_t<View>::element_type>>
-  void uploadBuffers(VulkanBufferHandle const &handle,
-                     View buffers,
+  void uploadBuffers(VulkanBufferHandle const &handle, View buffers,
                      std::vector<vk::DeviceSize> const *offsets = nullptr) {
     auto deleter = handle.get_deleter();
     auto *alloction = deleter.m_allocation;
@@ -714,7 +723,7 @@ public:
         .usage = vk::BufferUsageFlagBits::eUniformBuffer |
                  vk::BufferUsageFlagBits::eTransferDst};
     auto materialbuffer = createBuffer(bufferInfo, allocationInfo);
-    auto materialSpan = std::span<GPUPBR>(gpuMaterials);
+    // auto materialSpan = std::span<GPUPBR>(gpuMaterials);
     auto materialTransferBuffer = uploadToTransfer(
         materialsPadSize, views::all(gpuMaterialsSpan), padMaterialSize);
 

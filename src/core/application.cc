@@ -2,12 +2,13 @@
 
 Application::Application()
     : m_running(true), m_window(createWindow(m_windowSize)),
-      m_vulkanRender(createRender(
-          Application::GetBasePath() + "/..", m_windowSize,
-          m_window, m_appName, m_appVersion, m_engineName, m_engineVersion)),
-      m_manager(m_vulkanRender.getVulkanMemory(),m_vulkanRender.getPipelineFactory(),Application::GetBasePath()+"/..") {
+      m_vulkanRender(createRender(Application::GetBasePath() + "/..",
+                                  m_windowSize, m_window, m_appName,
+                                  m_appVersion, m_engineName, m_engineVersion)),
+      m_manager(m_vulkanRender.getVulkanMemory(),
+                m_vulkanRender.getPipelineFactory(),
+                Application::GetBasePath() + "/..", m_input.get()) {
   onInit();
-
 }
 
 Application::~Application() { onCleanup(); }
@@ -37,9 +38,13 @@ void Application::onEvent(SDL_Event *event) {
   if (event->type == SDL_QUIT) {
     m_running = false;
   }
+  m_input->inputEvent(event);
 }
 
-void Application::onLoop() { m_manager.update(); }
+void Application::onLoop() {
+  m_input->processEvent();
+  m_manager.update();
+}
 void Application::onRender() { m_vulkanRender.drawFrame(m_manager.m_scene); }
 
 void Application::onCleanup() {
@@ -58,8 +63,8 @@ VulkanRender Application::createRender(const string &path, App::Extent2D size,
                                        const std::string &engineName,
                                        uint32_t engineVersion) {
 
-  VulkanRender vulkanRender(path, size, appName, appVersion,
-                            engineName, engineVersion);
+  VulkanRender vulkanRender(path, size, appName, appVersion, engineName,
+                            engineVersion);
 
   // Get SDL_window require extensions
   unsigned int count = 0;

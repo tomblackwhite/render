@@ -7,10 +7,10 @@ using std::initializer_list;
 using std::vector;
 
 SceneManager::SceneManager(VulkanMemory *memory, PipelineFactory *factory,
-                           const std::string &homePath)
+                           const std::string &homePath, Input *input)
     : m_vulkanMemory(memory), m_pipelineFactory(factory), m_homePath(homePath),
       m_assetManager(AssetManager::instance(homePath)),
-      m_scene(memory, factory, homePath) {}
+      m_scene(memory, factory, homePath), m_input(input) {}
 
 void SceneManager::init() {
 
@@ -50,6 +50,9 @@ void SceneManager::update() {
       pscript->update(milisecond);
     }
   });
+
+  //更新场景信息
+  updateScene();
 }
 
 void SceneManager::physicalUpdate() {
@@ -73,7 +76,8 @@ void SceneManager::bindScript() {
   auto *rootNode = m_nodeContainer.map[m_mainScene].get();
 
   if (rootNode != nullptr) {
-    auto rootScript = std::make_unique<RootScript>(rootNode, &m_nodeFactory);
+    auto rootScript =
+        std::make_unique<RootScript>(rootNode, &m_nodeFactory, m_input);
     rootNode->setScript(std::unique_ptr<Script>(rootScript.release()));
   }
 }
@@ -187,7 +191,10 @@ void SceneManager::showScene(const string &scene) {
     for (auto *image : images) {
       imageVector.emplace_back(image);
     }
-    m_vulkanMemory->uploadImages(imageVector);
+    if (!images.empty()) {
+
+      m_vulkanMemory->uploadImages(imageVector);
+    }
 
     std::vector<Material *> materialVec;
     materialVec.reserve(materials.size());
@@ -199,14 +206,14 @@ void SceneManager::showScene(const string &scene) {
     std::vector buffers{std::as_bytes(std::span{&m_scene.camera, 1}),
                         std::as_bytes(std::span{&m_scene.sceneData, 1})};
     std::vector<vk::DeviceSize> offsets{
-        0,
-        m_vulkanMemory->getUniformPadSize(sizeof(GPUCamera))};
+        0, m_vulkanMemory->getUniformPadSize(sizeof(GPUCamera))};
     m_vulkanMemory->uploadBuffers(m_scene.sceneBuffer, views::all(buffers),
                                   &offsets);
   };
-   m_vulkanMemory->uploadAll(uploadFun);
+  m_vulkanMemory->uploadAll(uploadFun);
 
-  // m_vulkanMemory->uploadAll(images, m_scene.meshShowMap, m_scene.vertexBuffer,
+  // m_vulkanMemory->uploadAll(images, m_scene.meshShowMap,
+  // m_scene.vertexBuffer,
   //                           materials);
 
   vk::ImageSubresourceRange imageViewRange{};
@@ -255,6 +262,25 @@ void SceneManager::showScene(const string &scene) {
     texture->sampler = sampler;
   }
 
+  // 创建默认sampler供无imageView使用。
+  vk::Sampler defaultSampler = nullptr;
+  {
+
+    TextureFilter filter{.magFilter = vk::Filter::eLinear,
+                         .minFilter = vk::Filter::eLinear};
+
+    if (auto iter = m_scene.samplerMap.find(filter);
+        iter != m_scene.samplerMap.end()) {
+      defaultSampler = *(iter->second);
+      // do nothing
+    } else {
+      raii::Sampler createSampler =
+          m_vulkanMemory->m_pDevice->createSampler(samplerInfo);
+      defaultSampler = *createSampler;
+      m_scene.samplerMap.insert_or_assign(filter, std::move(createSampler));
+    }
+  }
+
   // auto first = textures.begin();
 
   // imageViewInfo.setImage((*first)->imageIterator->image.get());
@@ -283,9 +309,17 @@ void SceneManager::showScene(const string &scene) {
     vk::DescriptorImageInfo baseColorDescriptorInfo{};
     baseColorDescriptorInfo.setImageLayout(
         vk::ImageLayout::eShaderReadOnlyOptimal);
-    baseColorDescriptorInfo.setSampler(material->pbr.baseColorTexture->sampler);
-    baseColorDescriptorInfo.setImageView(
-        *(material->pbr.baseColorTexture->imageView));
+
+    if (material->pbr.baseColorTexture != Material::TextureIterator()) {
+
+      baseColorDescriptorInfo.setSampler(
+          material->pbr.baseColorTexture->sampler);
+      baseColorDescriptorInfo.setImageView(
+          *(material->pbr.baseColorTexture->imageView));
+    } else {
+
+      baseColorDescriptorInfo.setSampler(defaultSampler);
+    }
 
     vk::DescriptorImageInfo metallicRoughnessDescriptorInfo{};
     metallicRoughnessDescriptorInfo.setImageLayout(
@@ -297,8 +331,7 @@ void SceneManager::showScene(const string &scene) {
       metallicRoughnessDescriptorInfo.setImageView(
           *(material->pbr.metallicRoughnessTexture->imageView));
     } else {
-      metallicRoughnessDescriptorInfo.setSampler(
-          material->pbr.baseColorTexture->sampler);
+      metallicRoughnessDescriptorInfo.setSampler(defaultSampler);
     }
 
     descriptorImages.push_back(
@@ -355,6 +388,77 @@ void SceneManager::showScene(const string &scene) {
   // 上传camera
   // m_vulkanMemory->uploadByTransfer(
   //     m_scene.sceneBuffer, views::single(std::span(&m_scene.camera, 1)));
+}
+
+void SceneManager::updateScene() {
+
+  //clear functions before record
+  m_scene.recordFunctions.clear();
+
+  auto visitor = [&showMap = this->m_scene.showMap, &scene = this->m_scene,
+                  this](Node *pNode) {
+    // 是否显示
+    if ((pNode != nullptr) && pNode->visible()) {
+      // if (auto *mesh = dynamic_cast<MeshInstance *>(pNode); mesh) {
+
+      //   mesh->modelMatrix = this->getTransform(mesh);
+      //   showMap.insert_or_assign(mesh->name, mesh);
+      // }
+      if (auto *camera = dynamic_cast<Camera *>(pNode); camera) {
+        scene.camera.proj = camera->projection;
+        glm::vec3 scale;
+        glm::quat rotate;
+        glm::vec3 translation;
+        glm::vec3 skew;
+        glm::vec4 per;
+        auto transform = this->getTransform(camera);
+        glm::decompose(transform, scale, rotate, translation, skew, per);
+
+        //
+        auto view = glm::transpose(glm::toMat4(rotate)) *
+                    glm::translate(glm::mat4(1), -translation);
+        ;
+
+        scene.camera.view = view;
+        camera->view = view;
+        scene.camera.viewProj = scene.camera.proj * scene.camera.view;
+      }
+
+      if (auto *pScene = dynamic_cast<Scene *>(pNode); pScene) {
+
+        m_scene.sceneData = pScene->sceneData;
+      }
+    }
+  };
+
+  visitNode(m_mainScene, visitor);
+
+  auto updateRecord = [this](vk::CommandBuffer commandBuffer) {
+    auto spanBuffer = std::span{&m_scene.camera, 1};
+    // std::vector<GPUCamera> buffer{m_scene.camera};
+
+    commandBuffer.updateBuffer(m_scene.sceneBuffer.get(), 0,
+                               spanBuffer.size_bytes(), spanBuffer.data());
+
+
+    // update buffer before read;
+    vk::BufferMemoryBarrier2 barrier{};
+    barrier.setSrcAccessMask(vk::AccessFlagBits2::eTransferWrite);
+    barrier.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer);
+
+    barrier.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead);
+    barrier.setDstStageMask(vk::PipelineStageFlagBits2::eFragmentShader);
+
+    barrier.buffer = m_scene.sceneBuffer.get();
+    barrier.setSize(sizeof(GPUCamera));
+
+    vk::DependencyInfo depencyInfo{};
+    depencyInfo.setBufferMemoryBarriers(barrier);
+    commandBuffer.pipelineBarrier2(depencyInfo);
+  };
+
+  m_scene.recordFunctions.emplace_back(updateRecord);
+
 }
 
 glm::mat4 SceneManager::getTransform(Node *node) {

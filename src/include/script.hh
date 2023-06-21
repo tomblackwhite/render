@@ -1,5 +1,6 @@
 #pragma once
 #include <chrono>
+// #include "input.hh"
 
 namespace App {
 
@@ -7,6 +8,7 @@ namespace chrono = std::chrono;
 
 class Node;
 class NodeFactory;
+class Input;
 class Script {
 public:
 
@@ -18,8 +20,8 @@ public:
 
   virtual void physicalUpdate(){};
 
-  explicit Script(Node *node, NodeFactory *factory)
-      : m_node(node), m_nodeFactory(factory){};
+  explicit Script(Node *node, NodeFactory *factory,Input *input)
+      : m_node(node), m_nodeFactory(factory),m_input(input){};
   Script(const Script &) = default;
   Script(Script &&) = delete;
   Script &operator=(const Script &) = default;
@@ -30,5 +32,6 @@ public:
 protected:
   Node *m_node;
   NodeFactory *m_nodeFactory;
+  Input *m_input;
 };
 } // namespace App

@@ -259,11 +259,12 @@ void VulkanRender::drawFrame(App::GPUScene const &scene) {
 
   // because buffer has to be completed
   m_frames[m_currentFrame].commandBuffer.reset();
-  recordCommandBuffer(*m_frames[m_currentFrame].commandBuffer, imageIndex,
+  recordCommandBuffer(*m_frames[m_currentFrame].commandBuffer, imageIndex,scene.recordFunctions,
                       [&scene](vk::CommandBuffer commandBuff) {
                         scene.recordCommand(commandBuff);
                       });
 
+  // scene.recordFunctions.clear();
   vk::SubmitInfo submitInfo{};
 
   std::array waitSemaphores = {*m_frames[m_currentFrame].availableSemaphore};
@@ -384,6 +385,7 @@ bool VulkanRender::checkValidationLayerSupport() {
 
 void VulkanRender::recordCommandBuffer(
     vk::CommandBuffer commandBuffer, uint32_t imageIndex,
+      App::GPUScene::NormalFunctions const  &normalFuns,
     std::function<void(vk::CommandBuffer commandBuffer)> const
         &recordFunction) {
   vk::CommandBufferBeginInfo beginInfo{};
@@ -392,6 +394,10 @@ void VulkanRender::recordCommandBuffer(
   beginInfo.pInheritanceInfo = nullptr; // Optional
 
   commandBuffer.begin(beginInfo);
+
+  for(auto const &normalFun : normalFuns){
+    normalFun(commandBuffer);
+  }
 
   auto renderPass = *(m_renderTarget->m_renderPass);
   vk::RenderPassBeginInfo renderPassInfo{};

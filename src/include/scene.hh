@@ -2,6 +2,7 @@
 #include "asset.hh"
 #include "gltf_type.hh"
 #include "pipeline.hh"
+#include "input.hh"
 #include "script_implement.hh"
 #include <chrono>
 #include <concepts>
@@ -52,6 +53,9 @@ struct TextureFilter {
 // 场景数据
 struct GPUScene {
 
+  using RecordFunction = std::move_only_function<void(vk::CommandBuffer) const>;
+  using NormalFunctions=std::vector<RecordFunction>;
+  using GraphicsFunctions=std::vector<RecordFunction>;
   GPUCamera camera;
   GPUSceneData sceneData;
 
@@ -61,6 +65,8 @@ struct GPUScene {
   MeshShowMap meshShowMap;
   NodeShowMap showMap;
   std::unique_ptr<GPUMeshBlock> vertexBuffer{nullptr};
+
+  NormalFunctions recordFunctions;
 
   std::vector<vk::DescriptorSetLayoutBinding> bindings = getBindings();
   VulkanBufferHandle sceneBuffer{nullptr};
@@ -428,7 +434,7 @@ private:
         1, vk::DescriptorType::eUniformBuffer, 1,
         vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment};
 
-    return {cameraBinding,sceneBinding};
+    return {cameraBinding, sceneBinding};
   }
 
   static std::vector<vk::DescriptorSetLayoutBinding> getTextureBindings() {
@@ -443,7 +449,8 @@ private:
     vk::DescriptorSetLayoutBinding textureBinding{};
     textureBinding.setBinding(0);
     textureBinding.setDescriptorCount(2);
-    textureBinding.setStageFlags(vk::ShaderStageFlagBits::eFragment);
+    textureBinding.setStageFlags(vk::ShaderStageFlagBits::eFragment |
+                                 vk::ShaderStageFlagBits::eVertex);
     textureBinding.setDescriptorType(vk::DescriptorType::eCombinedImageSampler);
 
     vk::DescriptorSetLayoutBinding materialBinding{
@@ -484,7 +491,7 @@ class SceneManager {
 
 public:
   explicit SceneManager(VulkanMemory *memory, PipelineFactory *factory,
-                        const std::string &homePath);
+                        const std::string &homePath,Input *input);
   // 初始化游戏流程脚本之类的,绑定各种内容。
   void init();
   // 每帧更新
@@ -506,6 +513,8 @@ private:
   // 显示场景 只用于第一次显示
   void showScene(const string &scene);
 
+  void updateScene();
+
   // 节点遍历
   void visitNode(const string &key, std::function<void(Node *)> const &visitor);
 
@@ -524,6 +533,11 @@ private:
   VulkanMemory *m_vulkanMemory;
   PipelineFactory *m_pipelineFactory;
   std::filesystem::path m_homePath;
+
+
+  //input
+  Input* m_input;
+
 
   std::unique_ptr<SceneFactory> m_factory;
 
@@ -724,9 +738,12 @@ private:
       subMeshPbr.baseColorFactor[i] =
           static_cast<float>(pbrCurrent.baseColorFactor[i]);
     }
-    subMeshPbr.baseColorTexture =
-        textures->begin() + pbrCurrent.baseColorTexture.index;
-    subMeshPbr.baseColorCoordIndex = pbrCurrent.baseColorTexture.texCoord;
+    if (pbrCurrent.baseColorTexture.index != -1) {
+
+      subMeshPbr.baseColorTexture =
+          textures->begin() + pbrCurrent.baseColorTexture.index;
+      subMeshPbr.baseColorCoordIndex = pbrCurrent.baseColorTexture.texCoord;
+    }
 
     if (pbrCurrent.metallicRoughnessTexture.index != -1) {
 

@@ -182,6 +182,9 @@ class Camera : public Node {
 public:
   glm::mat4 view{1};
   glm::mat4 projection{1};
+  glm::float32 rotationX=0;
+  glm::float32 rotationY=0;
+  glm::float32 rotationZ=0;
 };
 
 class Scene : public Node {

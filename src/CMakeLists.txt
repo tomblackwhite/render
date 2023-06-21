@@ -41,7 +41,11 @@ add_library(
   "./script/script_implement.cc"
 )
 
-target_link_libraries(script PRIVATE node PUBLIC script_interface tool)
+add_library(input INTERFACE "./include/input.hh")
+target_link_libraries(input INTERFACE tool)
+
+target_link_libraries(script PRIVATE node PUBLIC script_interface tool input   CONAN_PKG::glm)
+# target_link_libraries(sc)
 
 target_include_directories(script_interface PUBLIC "./include")
 target_link_libraries(

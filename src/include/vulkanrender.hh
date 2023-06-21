@@ -111,6 +111,7 @@ private:
 
   void recordCommandBuffer(
       vk::CommandBuffer commandBuffer, uint32_t imageIndex,
+      App::GPUScene::NormalFunctions const &normalFuns,
       std::function<void(vk::CommandBuffer commandBuffer)> const &recordFun);
 
   // void createFrameDatas();
